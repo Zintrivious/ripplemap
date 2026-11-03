@@ -60,6 +60,7 @@ Scans a GitHub org or user through the API, or a folder of cloned repos (or a si
 | `--exclude <dir>` | Skip a folder name (`examples`) or repo-relative path (`test/fixtures`). Repeatable. |
 | `--out <file>` | Where to write the graph (default `ripplemap.json`) |
 | `--verbose` | Show files that could not be read or parsed |
+| `--strict` | Exit with code 1 if anything could not be read (every command takes this; see [Incomplete scans](#incomplete-scans)) |
 
 ### `ripplemap impact <repo>`
 
@@ -138,22 +139,41 @@ Every link carries a confidence level so you know how much to trust it:
 
 - **exact**: the reference names the repo (`acme/ci/.github/workflows/build.yml@v2`, `git::https://github.com/acme/modules.git//vpc`). Terraform registry modules count too, since registries only publish repos named `terraform-<provider>-<name>`.
 - **declared**: another repo declares it produces the thing (a `package.json` `name`, an image push in CI).
-- **convention**: guessed from naming, e.g. `ghcr.io/acme/api` is probably built by `acme/api`. These are marked `(guessed from name)` in the output.
+- **convention**: guessed from naming. `ghcr.io/acme/api` is probably built by `acme/api`, `docker-api` or `api-docker`, or failing those by the one repo whose name matches without punctuation (`argocd` → `argo-cd`). These are marked `(guessed from name)` in the output.
+
+### Incomplete scans
+
+A dependency map that silently misses links makes a change look safer than it is. So every file or repo ripplemap can't read or parse is recorded in the graph, and `impact`, `drift`, `unpinned` and `report` say so when a graph is incomplete. Add `--strict` to any command to exit with code 1 instead, so CI never acts on a partial graph. Very large repos whose file list GitHub truncates are fetched folder by folder rather than scanned in part.
+
+## Tested on real orgs
+
+Every parser has been run against public GitHub orgs, and the problems found were fixed (see the commit history):
+
+| Org | Repos | Cross-repo links | What it exercised |
+|---|---|---|---|
+| [linuxserver](https://github.com/linuxserver) | 288 | 2,053 | Docker base images: changing `docker-baseimage-alpine` affects 204 repos, 83 directly and 121 through other base images |
+| [sindresorhus](https://github.com/sindresorhus) | 955 | 1,542 | npm: `execa` is used by 162 repos across 9 major versions |
+| [cloudposse](https://github.com/cloudposse) (`terraform-*`) | 163 | 467 | Terraform modules and shared workflows |
+| [hashicorp](https://github.com/hashicorp) (`go-*`) | 42 | 69 | Go modules |
+| [argoproj](https://github.com/argoproj) | 27 | 63 | Kubernetes manifests, Helm charts, multi-MB install bundles |
+| [jupyter](https://github.com/jupyter) | 60 | 52 | Python packages (`jupyter_core` and `jupyter-core` are one package) |
+
+Spot-checked links point at the exact dependency line in the real files.
 
 ### Known limits
 
 - It reads files, not traffic. Service A calling service B over HTTP is invisible unless a config file names it. Your APM tool covers that side.
-- Images whose names are built entirely from CI variables can't be resolved statically and are skipped.
+- Images whose names are built from build-script variables can't be resolved statically, so they aren't linked to the repo that builds them. Argo's `workflow-controller` image is one example.
+- Folders named `node_modules`, `vendor`, `fixture(s)`, `__fixtures__`, `testdata` and `__snapshots__` are skipped. Their manifests are installed dependencies or deliberately fake test data.
 - When scanning a folder, repos are found one level deep: `repos/<repo>`. Nested layouts aren't supported yet.
 - `--org` works with github.com only. GitHub Enterprise Server isn't supported yet.
-- The Terraform and GitHub Actions parsing has been checked against real public repos. The Docker and npm linking has so far only been tested on the fixtures in `test/fixtures`. Bug reports with real-world files are very welcome.
 
 ## Roadmap
 
 - A GitHub Action that comments "this PR affects N repos" on pull requests
-- More parsers: Kubernetes manifests, Helm charts, `go.mod`, Python packages
+- `--org` for GitHub Enterprise Server, then GitLab and Bitbucket
 
-Check the [issues](https://github.com/Zintrivious/ripplemap/issues). The ones labeled `good first issue` are self-contained.
+Bug reports with real-world files ripplemap misreads are the most useful contribution there is. Check the [issues](https://github.com/Zintrivious/ripplemap/issues).
 
 ## Contributing
 
