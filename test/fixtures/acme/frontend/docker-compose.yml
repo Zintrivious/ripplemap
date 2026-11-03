@@ -1,0 +1,7 @@
+services:
+  api:
+    image: ghcr.io/acme/api:latest
+    ports:
+      - "8080:8080"
+  db:
+    image: postgres:16

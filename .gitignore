@@ -1,0 +1,5 @@
+node_modules/
+dist/
+ripplemap.json
+*.log
+.DS_Store

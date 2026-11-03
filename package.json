@@ -1,0 +1,47 @@
+{
+  "name": "ripplemap",
+  "version": "0.1.0",
+  "description": "See which repos in your org are affected when you change one. Maps cross-repo dependencies from Dockerfiles, Terraform, GitHub Actions, npm and Compose files with zero config.",
+  "keywords": [
+    "dependency-graph",
+    "devops",
+    "platform-engineering",
+    "terraform",
+    "github-actions",
+    "docker",
+    "monorepo",
+    "polyrepo",
+    "cli"
+  ],
+  "license": "MIT",
+  "author": "Zintrivious",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Zintrivious/ripplemap.git"
+  },
+  "homepage": "https://github.com/Zintrivious/ripplemap#readme",
+  "bugs": "https://github.com/Zintrivious/ripplemap/issues",
+  "type": "module",
+  "bin": {
+    "ripplemap": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"test/**/*.test.ts\"",
+    "prepare": "npm run build"
+  },
+  "dependencies": {
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}

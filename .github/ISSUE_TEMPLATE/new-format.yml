@@ -1,0 +1,25 @@
+name: Support a new file format
+description: Ask for (or offer to write) a parser for a file ripplemap doesn't read yet
+labels: [parser]
+body:
+  - type: input
+    id: format
+    attributes:
+      label: Format
+      placeholder: e.g. Helm Chart.yaml, go.mod, Kubernetes manifests
+    validations:
+      required: true
+  - type: textarea
+    id: example
+    attributes:
+      label: Example
+      description: A real-looking snippet with a cross-repo reference in it.
+      render: text
+    validations:
+      required: true
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Want to write it?
+      options:
+        - label: I'd like to open a PR for this (see CONTRIBUTING.md)
