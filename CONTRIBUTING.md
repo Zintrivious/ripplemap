@@ -18,7 +18,8 @@ node dist/cli.js scan test/fixtures/acme --owner acme
 ```
 src/
   cli.ts              argument parsing and commands
-  scan.ts             finds repos, walks files, runs parsers
+  scan.ts             finds repos on disk, runs parsers over their files
+  github.ts           scan --org: lists repos and fetches files through the GitHub API, with a cache
   parsers/            one file per file format
   refs.ts             normalizing image names, module sources, `uses:` values
   graph.ts            linking usages to producing repos, impact, drift

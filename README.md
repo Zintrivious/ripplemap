@@ -21,16 +21,20 @@ base-images
 
 ## Quick start
 
-Requires Node.js 20 or newer.
+Requires Node.js 20 or newer. Point it at your GitHub org; you don't need to clone anything:
 
 ```bash
-# Clone the repos you care about into one folder (or point it at a single repo)
-gh repo list my-org --limit 200 --json name --jq '.[].name' \
-  | xargs -I{} git clone --depth 1 https://github.com/my-org/{} repos/{}
-
-npx github:Zintrivious/ripplemap scan repos
+npx github:Zintrivious/ripplemap scan --org my-org
 npx github:Zintrivious/ripplemap impact <repo>
 npx github:Zintrivious/ripplemap drift
+```
+
+It uses `GITHUB_TOKEN`, `GH_TOKEN`, or your `gh auth login` session, so private repos work too. Only the files ripplemap reads are downloaded, and they're cached by content. Scanning Cloud Posse's 163 Terraform repos took 25 seconds the first time. Repeat scans take about 5 seconds and 3 API requests, because only repos with new pushes are fetched again.
+
+Already have the repos cloned? Scan the folder instead:
+
+```bash
+npx github:Zintrivious/ripplemap scan ~/code/my-org
 ```
 
 Or install it from source:
@@ -43,16 +47,20 @@ ripplemap scan ~/code/my-org
 
 ## Commands
 
-### `ripplemap scan <dir>`
+### `ripplemap scan --org <name>` / `ripplemap scan <dir>`
 
-Scans a folder of cloned repos, or a single repo, and writes `ripplemap.json`.
+Scans a GitHub org or user through the API, or a folder of cloned repos (or a single repo), and writes `ripplemap.json`.
 
 | Option | |
 |---|---|
-| `--out <file>` | Where to write the graph (default `ripplemap.json`) |
-| `--owner <org>` | Org name for repos without a git remote |
+| `--org <name>` | GitHub org or user to scan without cloning |
+| `--match <glob>` | With `--org`: only repos whose name matches, e.g. `terraform-*`. Repeatable. |
+| `--include-forks`, `--include-archived` | With `--org`: forks and archived repos are skipped by default |
+| `--no-cache` | With `--org`: don't read or write the download cache (`~/.cache/ripplemap`) |
+| `--owner <org>` | With a folder: org name for repos without a git remote |
 | `--exclude <dir>` | Skip a folder name (`examples`) or repo-relative path (`test/fixtures`). Repeatable. |
-| `--verbose` | Show files that could not be parsed |
+| `--out <file>` | Where to write the graph (default `ripplemap.json`) |
+| `--verbose` | Show files that could not be read or parsed |
 
 ### `ripplemap impact <repo>`
 
@@ -60,22 +68,21 @@ Every repo that depends on `<repo>`, directly or through other repos, with the f
 
 ### `ripplemap drift`
 
-Shared things used at more than one version. Here it is on 27 of [Cloud Posse](https://github.com/cloudposse)'s Terraform module repos:
+Shared things used at more than one version. Here it is on all 163 of [Cloud Posse](https://github.com/cloudposse)'s Terraform module repos, with examples and tests excluded. They're a well-run org that uses Renovate, and 16 of their own modules are still used at mismatched versions:
 
 ```
-$ ripplemap drift --internal --kind terraform-module
+$ ripplemap scan --org cloudposse --match 'terraform-*' --exclude examples --exclude test
+$ ripplemap drift --internal
 
-cloudposse/dynamic-subnets/aws  module · built in terraform-aws-dynamic-subnets · 7 versions across 15 repos
-  3.1.1   terraform-aws-elasticache-redis
-  2.4.2   terraform-aws-ec2-autoscale-group, terraform-aws-ec2-bastion-server, terraform-aws-ec2-instance +5 more
-  2.4.1   terraform-aws-ecs-codepipeline, terraform-aws-elastic-beanstalk-environment, terraform-aws-rds, terraform-aws-vpc-peering-multi-account
-  2.3.0   terraform-aws-ec2-instance, terraform-aws-eks-cluster, terraform-aws-vpc-peering
-  2.1.0   terraform-aws-vpc-peering
-  2.0.4   terraform-aws-vpc
-  0.39.8  terraform-aws-vpc
+cloudposse/security-group/aws  module · built in terraform-aws-security-group · 3 versions across 12 repos
+  2.2.0  terraform-aws-ec2-client-vpn, terraform-aws-ec2-instance-group, terraform-aws-efs +5 more
+  1.0.1  terraform-aws-elastic-beanstalk-environment, terraform-aws-mwaa
+  0.3.3  terraform-aws-ec2-bastion-server, terraform-aws-ec2-instance
+
+cloudposse/utils/aws  module · built in terraform-aws-utils · 2 versions across 3 repos
+  1.4.0     terraform-aws-config, terraform-aws-dynamic-subnets
+  unpinned  terraform-aws-github-action-token-rotator
 ```
-
-(All of that drift is in their `examples/` folders; their module code itself is kept current by Renovate. Run with `--exclude examples` to see only the code you ship.)
 
 | Option | |
 |---|---|
@@ -106,12 +113,12 @@ Every link carries a confidence level so you know how much to trust it:
 
 - It reads files, not traffic. Service A calling service B over HTTP is invisible unless a config file names it. Your APM tool covers that side.
 - Images whose names are built entirely from CI variables can't be resolved statically and are skipped.
-- Repos are found one level deep: `repos/<repo>`. Nested layouts aren't supported yet.
+- When scanning a folder, repos are found one level deep: `repos/<repo>`. Nested layouts aren't supported yet.
+- `--org` works with github.com only. GitHub Enterprise Server isn't supported yet.
 - The Terraform and GitHub Actions parsing has been checked against real public repos. The Docker and npm linking has so far only been tested on the fixtures in `test/fixtures`. Bug reports with real-world files are very welcome.
 
 ## Roadmap
 
-- `--org <name>`: scan a GitHub org through the API without cloning everything
 - An HTML report with an interactive graph
 - A GitHub Action that comments "this PR affects N repos" on pull requests
 - More parsers: Kubernetes manifests, Helm charts, `go.mod`, Python packages

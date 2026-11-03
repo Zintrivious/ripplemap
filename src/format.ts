@@ -19,7 +19,7 @@ const KIND_LABEL: Record<ArtifactKind, string> = {
 const MAX_REPOS_PER_LINE = 4;
 const EXAMPLE_PATH = /(^|\/)(examples?|tests?|fixtures)\//;
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /** Full git SHAs are unreadable in a table; 12 characters are still unique in practice. */
 const shortVersion = (version: string) => (/^[0-9a-f]{40}$/.test(version) ? version.slice(0, 12) : version);

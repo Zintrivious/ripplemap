@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
-import { formatDrift, formatImpact, formatScanSummary, yellow } from './format.ts';
+import { dim, formatDrift, formatImpact, formatScanSummary, plural, yellow } from './format.ts';
+import { scanGitHub } from './github.ts';
 import { drift, findRepo, impact, mostDependedOn } from './graph.ts';
-import { scan } from './scan.ts';
+import { scan, type ScanResult } from './scan.ts';
 import type { ArtifactKind, Graph } from './types.ts';
 
 const KINDS: ArtifactKind[] = ['image', 'terraform-module', 'workflow', 'action', 'npm'];
@@ -16,6 +17,11 @@ Usage:
       Scan a folder of cloned repos (or a single repo) and write the dependency graph.
       --owner    the org for repos that have no git remote
       --exclude  skip a folder name (examples) or repo-relative path (test/fixtures), repeatable
+
+  ripplemap scan --org <name> [--match <glob>] [--include-forks] [--include-archived] [--no-cache]
+      Scan every repo of a GitHub org or user without cloning. Uses GITHUB_TOKEN, GH_TOKEN,
+      or your "gh auth login" session. Takes --out, --exclude and --verbose too.
+      --match  only repos whose name matches, e.g. "terraform-*" (repeatable)
 
   ripplemap impact <repo> [--graph ripplemap.json] [--json]
       Every repo that depends on <repo>, directly or through other repos.
@@ -41,7 +47,7 @@ function loadGraph(file: string): Graph {
   return graph;
 }
 
-function runScan(args: string[]): number {
+async function runScan(args: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
     args,
     allowPositionals: true,
@@ -50,20 +56,50 @@ function runScan(args: string[]): number {
       owner: { type: 'string' },
       exclude: { type: 'string', multiple: true },
       verbose: { type: 'boolean', short: 'v', default: false },
+      org: { type: 'string' },
+      match: { type: 'string', multiple: true },
+      'include-forks': { type: 'boolean', default: false },
+      'include-archived': { type: 'boolean', default: false },
+      'no-cache': { type: 'boolean', default: false },
     },
   });
   const dir = positionals[0];
-  if (!dir) throw new Error('Usage: ripplemap scan <dir>');
-  if (!existsSync(dir)) throw new Error(`${dir} does not exist.`);
+  if (dir && values.org) throw new Error('Pass either a folder or --org, not both.');
+  if (!dir && !values.org) throw new Error('Usage: ripplemap scan <dir>  or  ripplemap scan --org <name>');
 
-  const { graph, filesParsed, warnings } = scan(dir, { owner: values.owner, exclude: values.exclude });
+  let result: ScanResult;
+  let source: string;
+  if (values.org) {
+    source = `github.com/${values.org}`;
+    const progress = process.stderr.isTTY ? (done: number, total: number) => process.stderr.write(`\rFetching repos ${done}/${total}`) : undefined;
+    const github = await scanGitHub({
+      org: values.org,
+      match: values.match,
+      includeForks: values['include-forks'],
+      includeArchived: values['include-archived'],
+      cacheDir: values['no-cache'] ? false : undefined,
+      exclude: values.exclude,
+      onProgress: progress,
+    });
+    if (progress) process.stderr.write('\r\x1b[K');
+    const { stats } = github;
+    const skipped = stats.skipped ? `, skipped ${stats.skipped} forks/archived/unmatched` : '';
+    console.error(dim(`${stats.apiRequests} API requests, ${stats.downloads} files downloaded, ${stats.cacheHits} from cache${skipped}.`));
+    result = github;
+  } else {
+    if (!existsSync(dir!)) throw new Error(`${dir} does not exist.`);
+    source = dir!;
+    result = scan(dir!, { owner: values.owner, exclude: values.exclude });
+  }
+
+  const { graph, filesParsed, warnings } = result;
   writeFileSync(values.out, JSON.stringify(graph, null, 2) + '\n');
-  console.log(formatScanSummary(graph, dir, filesParsed, mostDependedOn(graph), values.out));
+  console.log(formatScanSummary(graph, source, filesParsed, mostDependedOn(graph), values.out));
 
   if (warnings.length) {
     console.log('');
-    if (values.verbose) for (const w of warnings) console.log(yellow(`warning: ${w.repo}/${w.file}: ${w.message}`));
-    else console.log(yellow(`${warnings.length} files could not be parsed. Run with --verbose to see them.`));
+    if (values.verbose) for (const w of warnings) console.log(yellow(`warning: ${w.repo}${w.file ? `/${w.file}` : ''}: ${w.message}`));
+    else console.log(yellow(`${plural(warnings.length, 'warning')} (files that could not be read or parsed). Run with --verbose to see them.`));
   }
   return 0;
 }
@@ -106,7 +142,7 @@ function runDrift(args: string[]): number {
   return values.fail && entries.length ? 1 : 0;
 }
 
-function main(argv: string[]): number {
+async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;
   switch (command) {
     case 'scan':
@@ -131,9 +167,12 @@ function main(argv: string[]): number {
   }
 }
 
-try {
-  process.exitCode = main(process.argv.slice(2));
-} catch (error) {
-  console.error(`ripplemap: ${(error as Error).message}`);
-  process.exitCode = 2;
-}
+main(process.argv.slice(2)).then(
+  (code) => {
+    process.exitCode = code;
+  },
+  (error: Error) => {
+    console.error(`ripplemap: ${error.message}`);
+    process.exitCode = 2;
+  },
+);
