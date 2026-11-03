@@ -3,6 +3,8 @@ import { test } from 'node:test';
 import { actionsParser } from '../src/parsers/actions.ts';
 import { composeParser } from '../src/parsers/compose.ts';
 import { dockerfileParser } from '../src/parsers/dockerfile.ts';
+import { helmParser } from '../src/parsers/helm.ts';
+import { kubernetesParser } from '../src/parsers/kubernetes.ts';
 import { npmParser } from '../src/parsers/npm.ts';
 import { terraformParser } from '../src/parsers/terraform.ts';
 import type { Parser, RepoInfo } from '../src/types.ts';
@@ -170,4 +172,96 @@ test('compose: reads service images and ignores build-only services', () => {
     ['services:', '  api:', '    image: ghcr.io/acme/api:latest', '  local:', '    build: .', '  db:', '    image: postgres:16'].join('\n'),
   );
   assert.deepEqual(brief(uses), ['ghcr.io/acme/api latest L3', 'postgres 16 L7']);
+});
+
+test('kubernetes: reads container images from every workload kind in multi-document files', () => {
+  assert.ok(kubernetesParser.matches('deploy/api.yaml'));
+  assert.ok(kubernetesParser.matches('k8s/overlays/prod/cronjob.yml'));
+  for (const other of ['.github/workflows/ci.yml', 'docker-compose.yml', 'charts/api/Chart.yaml', 'charts/api/values.yaml', 'charts/api/templates/deployment.yaml', '.pre-commit-config.yaml']) {
+    assert.ok(!kubernetesParser.matches(other), other);
+  }
+
+  const { uses } = run(
+    kubernetesParser,
+    'deploy/api.yaml',
+    [
+      'apiVersion: apps/v1',
+      'kind: Deployment',
+      'spec:',
+      '  template:',
+      '    spec:',
+      '      initContainers:',
+      '        - name: migrate',
+      '          image: ghcr.io/acme/migrations:2.0',
+      '      containers:',
+      '        - name: api',
+      '          image: ghcr.io/acme/api:1.4',
+      '---',
+      'apiVersion: batch/v1',
+      'kind: CronJob',
+      'spec:',
+      '  jobTemplate:',
+      '    spec:',
+      '      template:',
+      '        spec:',
+      '          containers:',
+      '            - name: report',
+      '              image: ghcr.io/acme/reports@sha256:0123456789abcdef0123',
+    ].join('\n'),
+  );
+  assert.deepEqual(brief(uses), ['ghcr.io/acme/migrations 2.0 L8', 'ghcr.io/acme/api 1.4 L11', 'ghcr.io/acme/reports sha256:0123456789ab L22']);
+});
+
+test('kubernetes: quietly ignores YAML that is not a manifest or is templated', () => {
+  assert.deepEqual(run(kubernetesParser, 'openapi.yaml', 'openapi: 3.0.0\ninfo:\n  title: API\n').uses, []);
+  const templated = 'apiVersion: v1\nkind: Pod\nspec:\n  containers:\n    - image: {{ .Values.image }}\n';
+  assert.deepEqual(run(kubernetesParser, 'pod.yaml', templated).uses, []);
+});
+
+test('helm: Chart.yaml produces the chart and uses its non-local dependencies', () => {
+  const result = run(
+    helmParser,
+    'charts/api/Chart.yaml',
+    [
+      'apiVersion: v2',
+      'name: API',
+      'version: 1.2.0',
+      'dependencies:',
+      '  - name: common',
+      '    version: ^2.0.0',
+      '    repository: oci://ghcr.io/acme/charts',
+      '  - name: postgresql',
+      '    version: 15.5.1',
+      '    repository: https://charts.bitnami.com/bitnami',
+      '  - name: local-lib',
+      '    repository: file://../local-lib',
+    ].join('\n'),
+  );
+  assert.deepEqual(result.produces.map((p) => p.name), ['api']);
+  assert.deepEqual(brief(result.uses), ['common ^2.0.0 L5', 'postgresql 15.5.1 L8']);
+  // A chart vendored inside another chart is a copy of a dependency, not something this repo publishes.
+  assert.deepEqual(run(helmParser, 'charts/api/charts/postgresql/Chart.yaml', 'name: postgresql\n').produces, []);
+});
+
+test('helm: values files yield images in both common layouts', () => {
+  const { uses } = run(
+    helmParser,
+    'charts/api/values.yaml',
+    [
+      'image:',
+      '  registry: ghcr.io',
+      '  repository: acme/api',
+      '  tag: "1.4"',
+      '  pullPolicy: IfNotPresent',
+      'worker:',
+      '  image:',
+      '    repository: ghcr.io/acme/worker',
+      '    tag: ""',
+      'sidecar:',
+      '  image: ghcr.io/acme/proxy:0.9',
+      'git:',
+      '  repository: https://github.com/acme/config',
+    ].join('\n'),
+  );
+  assert.deepEqual(brief(uses), ['ghcr.io/acme/api 1.4 L2', 'ghcr.io/acme/worker chart default L8', 'ghcr.io/acme/proxy 0.9 L11']);
 });

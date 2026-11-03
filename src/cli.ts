@@ -8,7 +8,7 @@ import { renderReport } from './report.ts';
 import { scan, type ScanResult } from './scan.ts';
 import type { ArtifactKind, Graph } from './types.ts';
 
-const KINDS: ArtifactKind[] = ['image', 'terraform-module', 'workflow', 'action', 'npm'];
+const KINDS: ArtifactKind[] = ['image', 'terraform-module', 'workflow', 'action', 'npm', 'helm-chart', 'go', 'python'];
 const DEFAULT_GRAPH = 'ripplemap.json';
 
 const HELP = `ripplemap: see which repos are affected when you change one

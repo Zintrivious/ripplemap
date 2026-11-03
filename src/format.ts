@@ -14,6 +14,9 @@ const KIND_LABEL: Record<ArtifactKind, string> = {
   workflow: 'workflow',
   action: 'action',
   npm: 'npm',
+  'helm-chart': 'chart',
+  go: 'go',
+  python: 'python',
 };
 
 const MAX_REPOS_PER_LINE = 4;

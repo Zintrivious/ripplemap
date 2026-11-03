@@ -1,4 +1,4 @@
-export type ArtifactKind = 'image' | 'terraform-module' | 'workflow' | 'action' | 'npm';
+export type ArtifactKind = 'image' | 'terraform-module' | 'workflow' | 'action' | 'npm' | 'helm-chart' | 'go' | 'python';
 
 /**
  * How sure we are that a link points at the right repo.

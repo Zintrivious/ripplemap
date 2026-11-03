@@ -108,6 +108,8 @@ Writes `ripplemap.html`: one self-contained page with an interactive graph, the 
 | `.github/workflows/*.yml`, `action.yml` | actions, reusable workflows, `docker://` images, job `container` and `services` images | images pushed with `docker/build-push-action`, `docker/metadata-action`, or `docker push` |
 | `package.json` | `dependencies`, `devDependencies`, `peerDependencies`, `optionalDependencies` | the package `name` |
 | `compose.yml`, `docker-compose*.yml` | service `image`s | |
+| Kubernetes manifests (`*.yaml` with `apiVersion` and `kind`) | `containers`, `initContainers` and `ephemeralContainers` images in any workload, including CRDs, across multi-document files | |
+| Helm `Chart.yaml`, `values*.yaml` | chart `dependencies` (not `file://`), images in values as `image: repo:tag` or `{ registry, repository, tag }` | the chart, by `name` |
 
 ### How references are linked to repos
 

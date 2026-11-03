@@ -3,7 +3,7 @@
 
   const data = JSON.parse(document.getElementById('ripplemap-data').textContent);
   const SVG_NS = 'http://www.w3.org/2000/svg';
-  const KIND_LABEL = { image: 'image', 'terraform-module': 'module', workflow: 'workflow', action: 'action', npm: 'npm' };
+  const KIND_LABEL = { image: 'image', 'terraform-module': 'module', workflow: 'workflow', action: 'action', npm: 'npm', 'helm-chart': 'chart', go: 'go', python: 'python' };
   const MAX_REFS = 3;
 
   const $ = (id) => document.getElementById(id);
