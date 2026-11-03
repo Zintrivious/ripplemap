@@ -86,7 +86,35 @@ test('actions: finds uses in workflows and composite actions', () => {
       '      - uses: docker://alpine:3.20',
     ].join('\n'),
   );
-  assert.deepEqual(brief(uses), ['acme/ci/.github/workflows/build.yml v2 L4', 'actions/checkout v4 L9', 'alpine 3.20 L11']);
+  assert.deepEqual(brief(uses), ['acme/ci/.github/workflows/build.yml v2 L4', 'actions/checkout v4 L9', 'alpine 3.20 L11', 'node 22 L7']);
+});
+
+test('actions: reads job container and service images', () => {
+  const { uses } = run(
+    actionsParser,
+    '.github/workflows/test.yml',
+    [
+      'on: push',
+      'env:',
+      '  CI_TAG: "3"',
+      'jobs:',
+      '  test:',
+      '    runs-on: ubuntu-latest',
+      '    container:',
+      '      image: ghcr.io/acme/ci-image:${{ env.CI_TAG }}',
+      '      options: --cpus 2',
+      '    services:',
+      '      db:',
+      '        image: postgres:16',
+      '      cache:',
+      '        image: redis',
+      '      broken:',
+      '        image: ${{ matrix.image }}',
+      '    steps:',
+      '      - run: npm test',
+    ].join('\n'),
+  );
+  assert.deepEqual(brief(uses), ['ghcr.io/acme/ci-image 3 L8', 'postgres 16 L12', 'redis latest L14']);
 });
 
 test('actions: detects images pushed by build-push-action, metadata-action and docker push', () => {

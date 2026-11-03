@@ -105,7 +105,7 @@ Writes `ripplemap.html`: one self-contained page with an interactive graph, the 
 |---|---|---|
 | `Dockerfile`, `*.dockerfile`, `Containerfile` | `FROM` and `COPY --from` images (resolves `ARG` defaults, skips build stages) | |
 | `*.tf` | `module` sources: git (`git::`, `github.com/...`), and registry (`org/name/provider`) | the module, by repo name |
-| `.github/workflows/*.yml`, `action.yml` | actions, reusable workflows, `docker://` images | images pushed with `docker/build-push-action`, `docker/metadata-action`, or `docker push` |
+| `.github/workflows/*.yml`, `action.yml` | actions, reusable workflows, `docker://` images, job `container` and `services` images | images pushed with `docker/build-push-action`, `docker/metadata-action`, or `docker push` |
 | `package.json` | `dependencies`, `devDependencies`, `peerDependencies`, `optionalDependencies` | the package `name` |
 | `compose.yml`, `docker-compose*.yml` | service `image`s | |
 

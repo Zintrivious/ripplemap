@@ -1,4 +1,4 @@
-import { isMap, isScalar, isSeq, LineCounter, parseDocument, visit, type Document, type YAMLMap } from 'yaml';
+import { isMap, isScalar, isSeq, LineCounter, parseDocument, visit, type Document, type Scalar, type YAMLMap } from 'yaml';
 import { parseImageRef, parseUses } from '../refs.ts';
 import type { Parser, Production, RepoInfo, Usage } from '../types.ts';
 
@@ -112,6 +112,12 @@ export const actionsParser: Parser = {
       },
     });
 
+    for (const { node, vars } of jobImages(doc, repoVars(repo))) {
+      const resolved = resolve(String(node.value), vars);
+      const image = resolved && parseImageRef(resolved);
+      if (image) uses.push({ kind: 'image', ...image, location: { file, line: lineOf(node.range?.[0]) } });
+    }
+
     const produces: Production[] = [];
     for (const { step, vars } of stepsOf(doc, repoVars(repo))) {
       for (const name of pushedImages(step, vars)) {
@@ -122,3 +128,23 @@ export const actionsParser: Parser = {
     return { uses, produces };
   },
 };
+
+/** Images jobs run in: `jobs.<id>.container` (a string or `{ image }`) and `jobs.<id>.services.<name>.image`. */
+function jobImages(doc: Document, base: Vars): { node: Scalar; vars: Vars }[] {
+  const out: { node: Scalar; vars: Vars }[] = [];
+  const jobs = doc.get('jobs');
+  if (!isMap(jobs)) return out;
+  const rootVars = envVars(doc.get('env'), base);
+  const add = (node: unknown, vars: Vars) => {
+    if (isScalar(node) && typeof node.value === 'string' && node.value.trim()) out.push({ node, vars });
+  };
+  for (const job of jobs.items) {
+    if (!isMap(job.value)) continue;
+    const vars = envVars(job.value.get('env'), rootVars);
+    const container = job.value.get('container', true);
+    add(isMap(container) ? container.get('image', true) : container, vars);
+    const services = job.value.get('services');
+    if (isMap(services)) for (const service of services.items) if (isMap(service.value)) add(service.value.get('image', true), vars);
+  }
+  return out;
+}
