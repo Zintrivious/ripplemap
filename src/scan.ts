@@ -91,11 +91,13 @@ function identify(repoDir: string, root: string, owner?: string): RepoInfo {
   const ref = remote ? parseRepoUrl(remote) : null;
   const name = ref?.name ?? basename(repoDir).toLowerCase();
   const repoOwner = ref?.owner ?? owner?.toLowerCase() ?? '';
+  const webHost = ref && /^(github\.com|gitlab\.com|bitbucket\.org)$/.test(ref.host);
   return {
     id: repoOwner ? `${repoOwner}/${name}` : name,
     owner: repoOwner,
     name,
     path: relative(root, repoDir).split(sep).join('/') || '.',
+    ...(webHost ? { url: `https://${ref.host}/${ref.owner}/${ref.name}` } : {}),
   };
 }
 

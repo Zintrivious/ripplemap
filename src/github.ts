@@ -203,6 +203,7 @@ export async function scanGitHub(options: GitHubScanOptions): Promise<GitHubScan
       owner: apiRepo.owner.login.toLowerCase(),
       name: apiRepo.name.toLowerCase(),
       path: apiRepo.full_name,
+      url: `https://github.com/${apiRepo.full_name}`,
     };
     const files: LoadedRepo['files'] = [];
     loaded.push({ repo, files });

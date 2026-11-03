@@ -4,6 +4,7 @@ import { parseArgs } from 'node:util';
 import { dim, formatDrift, formatImpact, formatScanSummary, plural, yellow } from './format.ts';
 import { scanGitHub } from './github.ts';
 import { drift, findRepo, impact, mostDependedOn } from './graph.ts';
+import { renderReport } from './report.ts';
 import { scan, type ScanResult } from './scan.ts';
 import type { ArtifactKind, Graph } from './types.ts';
 
@@ -31,6 +32,9 @@ Usage:
       --internal  only things built in your scanned repos
       --kind      one of: ${KINDS.join(', ')} (repeatable)
       --fail      exit with code 1 if any drift is found (for CI)
+
+  ripplemap report [--graph ripplemap.json] [--out ripplemap.html]
+      A self-contained HTML page: an interactive impact graph and the drift table.
 
   ripplemap --version
 `;
@@ -93,6 +97,7 @@ async function runScan(args: string[]): Promise<number> {
   }
 
   const { graph, filesParsed, warnings } = result;
+  graph.source = source;
   writeFileSync(values.out, JSON.stringify(graph, null, 2) + '\n');
   console.log(formatScanSummary(graph, source, filesParsed, mostDependedOn(graph), values.out));
 
@@ -142,11 +147,27 @@ function runDrift(args: string[]): number {
   return values.fail && entries.length ? 1 : 0;
 }
 
+function runReport(args: string[]): number {
+  const { values } = parseArgs({
+    args,
+    options: {
+      graph: { type: 'string', short: 'g', default: DEFAULT_GRAPH },
+      out: { type: 'string', short: 'o', default: 'ripplemap.html' },
+    },
+  });
+  const graph = loadGraph(values.graph);
+  writeFileSync(values.out, renderReport(graph));
+  console.log(`Wrote ${values.out} (${plural(graph.repos.length, 'repo')}, ${plural(graph.links.length, 'link')}). Open it in a browser.`);
+  return 0;
+}
+
 async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;
   switch (command) {
     case 'scan':
       return runScan(rest);
+    case 'report':
+      return runReport(rest);
     case 'impact':
       return runImpact(rest);
     case 'drift':

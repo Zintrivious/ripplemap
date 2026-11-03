@@ -24,6 +24,9 @@ src/
   refs.ts             normalizing image names, module sources, `uses:` values
   graph.ts            linking usages to producing repos, impact, drift
   format.ts           terminal output
+  report.ts           builds the HTML report from the graph
+assets/
+  report.css, report.js   the report page's styles and script (plain files, no build step)
 test/
   fixtures/acme/      a small fake org used by the graph tests
 ```

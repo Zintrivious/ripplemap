@@ -19,14 +19,19 @@ base-images
 
 `frontend` never mentions `base-images`. It runs the `api` image, which is built on top of it. ripplemap follows that chain.
 
+`ripplemap report` turns the same graph into a single HTML page you can open offline or share. Click a repo to see everything a change to it would affect:
+
+![ripplemap report on Cloud Posse's 163 Terraform repos: selecting terraform-aws-security-group highlights the 13 repos it affects](docs/report.png)
+
 ## Quick start
 
 Requires Node.js 20 or newer. Point it at your GitHub org; you don't need to clone anything:
 
 ```bash
-npx github:Zintrivious/ripplemap scan --org my-org
-npx github:Zintrivious/ripplemap impact <repo>
-npx github:Zintrivious/ripplemap drift
+npx ripplemap scan --org my-org
+npx ripplemap report        # writes ripplemap.html
+npx ripplemap impact <repo>
+npx ripplemap drift
 ```
 
 It uses `GITHUB_TOKEN`, `GH_TOKEN`, or your `gh auth login` session, so private repos work too. Only the files ripplemap reads are downloaded, and they're cached by content. Scanning Cloud Posse's 163 Terraform repos took 25 seconds the first time. Repeat scans take about 5 seconds and 3 API requests, because only repos with new pushes are fetched again.
@@ -34,16 +39,10 @@ It uses `GITHUB_TOKEN`, `GH_TOKEN`, or your `gh auth login` session, so private 
 Already have the repos cloned? Scan the folder instead:
 
 ```bash
-npx github:Zintrivious/ripplemap scan ~/code/my-org
+npx ripplemap scan ~/code/my-org
 ```
 
-Or install it from source:
-
-```bash
-git clone https://github.com/Zintrivious/ripplemap && cd ripplemap
-npm install && npm link
-ripplemap scan ~/code/my-org
-```
+Or install it globally with `npm install -g ripplemap`.
 
 ## Commands
 
@@ -91,6 +90,15 @@ cloudposse/utils/aws  module · built in terraform-aws-utils · 2 versions acros
 | `--fail` | Exit with code 1 when drift is found, so you can run it in CI |
 | `--json` | Full output for scripting |
 
+### `ripplemap report`
+
+Writes `ripplemap.html`: one self-contained page with an interactive graph, the impact of any repo, and the drift table. It has no external scripts or fonts, so it works offline and can be attached to a ticket or posted in Slack. File references link straight to the line on GitHub. Add `#repo=<owner/name>` to the URL to open the page with that repo selected.
+
+| Option | |
+|---|---|
+| `--graph <file>` | Graph to read (default `ripplemap.json`) |
+| `--out <file>` | Where to write the page (default `ripplemap.html`) |
+
 ## What it understands
 
 | File | Uses | Produces |
@@ -119,7 +127,6 @@ Every link carries a confidence level so you know how much to trust it:
 
 ## Roadmap
 
-- An HTML report with an interactive graph
 - A GitHub Action that comments "this PR affects N repos" on pull requests
 - More parsers: Kubernetes manifests, Helm charts, `go.mod`, Python packages
 

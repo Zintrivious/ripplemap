@@ -13,8 +13,10 @@ export interface RepoInfo {
   id: string;
   owner: string;
   name: string;
-  /** Path relative to the scan root. */
+  /** Path relative to the scan root, or "owner/name" for repos fetched with --org. */
   path: string;
+  /** Web URL of the repo, when known. Used to link to files from the HTML report. */
+  url?: string;
 }
 
 export interface Location {
@@ -82,6 +84,8 @@ export interface Link {
 export interface Graph {
   schemaVersion: 1;
   generatedAt: string;
+  /** What was scanned: a folder path or "github.com/<org>". */
+  source?: string;
   repos: RepoInfo[];
   usages: RepoUsage[];
   produces: RepoProduction[];

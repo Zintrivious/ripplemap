@@ -30,3 +30,4 @@ jobs:
       - run: npm ci
       - run: node dist/cli.js scan test/fixtures/acme --owner acme
       - run: node dist/cli.js impact base-images
+      - run: node dist/cli.js report
