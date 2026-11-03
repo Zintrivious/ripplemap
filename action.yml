@@ -1,0 +1,153 @@
+name: ripplemap impact
+description: Comment on pull requests with the repos in your org that the change may affect.
+author: Zintrivious
+branding:
+  icon: git-pull-request
+  color: blue
+
+inputs:
+  token:
+    description: >
+      Token used to read the org's repos. The default job token can read public repos only;
+      for private repos, pass a token or GitHub App token with read access to every repo to scan.
+    default: ${{ github.token }}
+  org:
+    description: GitHub org or user to scan.
+    default: ${{ github.repository_owner }}
+  match:
+    description: Only scan repos whose name matches these globs, separated by spaces or new lines (e.g. "terraform-* platform-*").
+    default: ''
+  exclude:
+    description: Folder names or repo-relative paths to skip in every repo, separated by spaces or new lines (e.g. "examples test").
+    default: ''
+  comment:
+    description: >
+      When to comment on the pull request. "affected" (the default) comments only when some repo is affected,
+      and keeps an earlier comment up to date; "always" also comments when nothing is; "never" only writes the job summary.
+    default: affected
+  comment-token:
+    description: Token used to read the pull request's files and post the comment. Needs pull-requests write permission.
+    default: ${{ github.token }}
+  strict:
+    description: Fail the step when the scan was incomplete (some files or repos could not be read).
+    default: 'false'
+  repository:
+    description: The repo the pull request changes, as owner/name. Only set this to analyze a different repo than the one the workflow runs in.
+    default: ${{ github.repository }}
+  changed-files:
+    description: Changed files, one per line, instead of the pull request's files. For testing, or for events other than pull_request.
+    default: ''
+
+outputs:
+  affected:
+    description: Number of repos the change may affect, directly or through other repos.
+    value: ${{ steps.affected.outputs.affected }}
+  direct:
+    description: Number of repos that use something the change touches.
+    value: ${{ steps.affected.outputs.direct }}
+  complete:
+    description: '"true" when every file and repo in the scan could be read.'
+    value: ${{ steps.affected.outputs.complete }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v5
+      with:
+        node-version: 24
+
+    # Runs the TypeScript source directly (Node 24 strips types), so only runtime dependencies are needed.
+    - name: Install ripplemap
+      shell: bash
+      run: npm ci --omit=dev --ignore-scripts --no-audit --no-fund --prefix "$GITHUB_ACTION_PATH" > /dev/null
+
+    # File lists and contents are cached by content hash, so repeat scans fetch only what changed.
+    - uses: actions/cache@v4
+      with:
+        path: ~/.cache/ripplemap
+        key: ripplemap-${{ inputs.org }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: ripplemap-${{ inputs.org }}-
+
+    - name: List changed files
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.comment-token }}
+        CHANGED: ${{ inputs.changed-files }}
+        PR: ${{ github.event.pull_request.number }}
+      run: |
+        out="$RUNNER_TEMP/ripplemap-changed.txt"
+        if [ -n "$CHANGED" ]; then
+          printf '%s\n' "$CHANGED" > "$out"
+        elif [ -n "$PR" ]; then
+          # Renamed files count under both names: consumers may reference either path.
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq '.[] | .filename, (.previous_filename // empty)' > "$out"
+        else
+          echo "::error::ripplemap runs on pull_request or pull_request_target events, or needs the changed-files input."
+          exit 1
+        fi
+        echo "$(grep -c . "$out" || true) changed files"
+
+    - name: Scan ${{ inputs.org }}
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.token }}
+        ORG: ${{ inputs.org }}
+        MATCH: ${{ inputs.match }}
+        EXCLUDE: ${{ inputs.exclude }}
+      run: |
+        args=(scan --org "$ORG" --out "$RUNNER_TEMP/ripplemap.json")
+        for m in $MATCH; do args+=(--match "$m"); done
+        for e in $EXCLUDE; do args+=(--exclude "$e"); done
+        node "$GITHUB_ACTION_PATH/src/cli.ts" "${args[@]}"
+
+    - name: Work out what the change affects
+      id: affected
+      shell: bash
+      env:
+        REPO: ${{ inputs.repository }}
+      run: |
+        cli="$GITHUB_ACTION_PATH/src/cli.ts"
+        common=(affected "$REPO" --files "$RUNNER_TEMP/ripplemap-changed.txt" --graph "$RUNNER_TEMP/ripplemap.json")
+        node "$cli" "${common[@]}" --markdown > "$RUNNER_TEMP/ripplemap-comment.md"
+        node "$cli" "${common[@]}" --json > "$RUNNER_TEMP/ripplemap-impact.json"
+        node -e '
+          const r = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+          const out = [`affected=${r.direct.length + r.indirect.length}`, `direct=${r.direct.length}`, `complete=${r.complete}`];
+          require("fs").appendFileSync(process.env.GITHUB_OUTPUT, out.join("\n") + "\n");
+        ' "$RUNNER_TEMP/ripplemap-impact.json"
+        cat "$RUNNER_TEMP/ripplemap-comment.md" >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Comment on the pull request
+      if: inputs.comment != 'never' && github.event.pull_request.number
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.comment-token }}
+        PR: ${{ github.event.pull_request.number }}
+        MODE: ${{ inputs.comment }}
+        AFFECTED: ${{ steps.affected.outputs.affected }}
+      run: |
+        body="$RUNNER_TEMP/ripplemap-comment.md"
+        existing=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" \
+          --jq '.[] | select(.body | startswith("<!-- ripplemap -->")) | .id' | head -n 1)
+        # With nothing affected, only update a comment that already exists, so it doesn't go stale.
+        if [ "$AFFECTED" = 0 ] && [ "$MODE" = affected ] && [ -z "$existing" ]; then
+          echo "No repo is affected; not commenting."
+          exit 0
+        fi
+        if [ -n "$existing" ]; then
+          ok=$(gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$existing" -F body=@"$body" --jq .html_url) || ok=
+        else
+          ok=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F body=@"$body" --jq .html_url) || ok=
+        fi
+        if [ -n "$ok" ]; then
+          echo "Commented: $ok"
+        else
+          echo "::warning::ripplemap couldn't comment (the token needs pull-requests: write; pull requests from forks only get it under pull_request_target). The result is in the job summary."
+        fi
+
+    - name: Check the scan was complete
+      if: inputs.strict == 'true' && steps.affected.outputs.complete != 'true'
+      shell: bash
+      run: |
+        echo "::error::The scan was incomplete, so some affected repos may be missing. Run ripplemap scan --verbose locally to see what couldn't be read."
+        exit 1

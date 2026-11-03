@@ -1,3 +1,4 @@
+import type { ChangeImpact } from './changes.ts';
 import type { DriftEntry, ImpactEntry, UnpinnedEntry } from './graph.ts';
 import type { ArtifactKind, Graph, Link } from './types.ts';
 
@@ -92,6 +93,41 @@ export function formatDrift(graph: Graph, entries: DriftEntry[]): string {
     '',
     `${bold(plural(entries.length, 'artifact'))} with drift (${internal} built in your repos). Use --json for full repo lists.`,
   ].join('\n');
+}
+
+export function formatChangeImpact(graph: Graph, impact: ChangeImpact): string {
+  const name = repoNamer(graph);
+  if (!impact.scanned) return `${bold(impact.repo)} isn't in the scanned graph, so there's nothing to compare against.`;
+  const total = impact.direct.length + impact.indirect.length;
+  const lines: string[] = [];
+
+  if (!total) {
+    lines.push(
+      impact.relevant.length
+        ? `No scanned repo uses the parts of ${bold(name(impact.repo))} these files change.`
+        : `These files are docs, tests or examples, which other repos don't consume.`,
+    );
+  } else {
+    lines.push(`Changing ${bold(name(impact.repo))} may affect ${bold(plural(total, 'repo'))}: ${impact.direct.length} direct, ${impact.indirect.length} indirect.`);
+    for (const artifact of impact.artifacts) {
+      lines.push('', `${bold(artifact.name)}  ${dim(`${KIND_LABEL[artifact.kind]} · changed: ${artifact.files.slice(0, 3).join(', ')}${artifact.files.length > 3 ? ` +${artifact.files.length - 3} more` : ''}`)}`);
+      const width = Math.max(...artifact.consumers.map((c) => name(c.repo).length));
+      for (const consumer of artifact.consumers) {
+        const link = consumer.links[0]!;
+        const when = consumer.unpinned ? yellow('  gets it on merge') : '';
+        lines.push(`  ${cyan(name(consumer.repo).padEnd(width))}  ${shortVersion(link.version)}  ${dim(`${link.location.file}:${link.location.line}`)}${when}`);
+      }
+    }
+    if (impact.indirect.length) {
+      lines.push('', bold('Through other repos'));
+      for (const e of impact.indirect) lines.push(`  ${cyan(name(e.repo))}  ${dim(`via ${name(e.via)}`)}`);
+    }
+  }
+  if (impact.untouched.length) {
+    lines.push('', dim(`Not touched: ${impact.untouched.map((u) => `${u.name} (${plural(u.consumers, 'repo')})`).join(', ')}`));
+  }
+  if (impact.ignored.length) lines.push(dim(`Ignored as docs, tests or examples: ${plural(impact.ignored.length, 'file')}`));
+  return lines.join('\n');
 }
 
 export function formatUnpinned(graph: Graph, entries: UnpinnedEntry[], all: boolean): string {

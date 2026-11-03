@@ -1,0 +1,45 @@
+# Runs this repo's Action against a real org on pull requests that touch it.
+# It pretends the pull request changes cloudposse/terraform-aws-security-group, so the comment
+# shows real impact on Cloud Posse's public Terraform modules.
+name: Action self-test
+
+on:
+  pull_request:
+    paths:
+      - action.yml
+      - src/**
+      - assets/**
+      - package.json
+      - package-lock.json
+      - .github/workflows/action-test.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  impact:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - id: ripplemap
+        uses: ./
+        with:
+          org: cloudposse
+          match: terraform-*
+          exclude: examples test
+          repository: cloudposse/terraform-aws-security-group
+          changed-files: |
+            main.tf
+            variables.tf
+            README.md
+          comment: always
+          strict: true
+      - name: Check the outputs
+        env:
+          AFFECTED: ${{ steps.ripplemap.outputs.affected }}
+          DIRECT: ${{ steps.ripplemap.outputs.direct }}
+        run: |
+          echo "affected=$AFFECTED direct=$DIRECT"
+          [ "$DIRECT" -gt 0 ] || { echo "::error::Expected terraform-aws-security-group to have direct users"; exit 1; }
