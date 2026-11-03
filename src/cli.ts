@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
-import { dim, formatDrift, formatImpact, formatScanSummary, formatUnpinned, plural, yellow } from './format.ts';
+import { changeImpact } from './changes.ts';
+import { dim, formatChangeImpact, formatDrift, formatImpact, formatScanSummary, formatUnpinned, plural, yellow } from './format.ts';
+import { formatChangeMarkdown } from './markdown.ts';
 import { scanGitHub } from './github.ts';
 import { drift, findRepo, impact, mostDependedOn, unpinned } from './graph.ts';
 import { renderReport } from './report.ts';
@@ -26,6 +28,11 @@ Usage:
 
   ripplemap impact <repo> [--graph ripplemap.json] [--json]
       Every repo that depends on <repo>, directly or through other repos.
+
+  ripplemap affected <repo> --files <list|-> [--graph ripplemap.json] [--markdown] [--json]
+      Which repos a change to these files in <repo> may affect. --files is a file with one path
+      per line, or - for stdin:  git diff --name-only main | ripplemap affected api --files -
+      Docs, tests and examples are ignored. --markdown writes the pull request comment.
 
   ripplemap drift [--graph ripplemap.json] [--internal] [--kind <kind>] [--json] [--fail]
       Shared images, modules, workflows and packages used at different versions.
@@ -179,6 +186,35 @@ function runDrift(args: string[]): number {
   return values.fail && entries.length ? 1 : incomplete;
 }
 
+function runAffected(args: string[]): number {
+  const { values, positionals } = parseArgs({
+    args,
+    allowPositionals: true,
+    options: {
+      graph: { type: 'string', short: 'g', default: DEFAULT_GRAPH },
+      files: { type: 'string' },
+      markdown: { type: 'boolean', default: false },
+      json: { type: 'boolean', default: false },
+      ...strictOption,
+    },
+  });
+  if (!positionals[0] || !values.files) throw new Error('Usage: ripplemap affected <repo> --files <list|->');
+  const graph = loadGraph(values.graph);
+  const list = readFileSync(values.files === '-' ? 0 : values.files, 'utf8').split(/\r?\n/);
+
+  // A repo outside the scan (filtered by --match, say) is reported as such rather than failing.
+  let repo = positionals[0].toLowerCase();
+  try {
+    repo = findRepo(graph, positionals[0]).id;
+  } catch {}
+
+  const result = changeImpact(graph, repo, list);
+  if (values.json) console.log(JSON.stringify({ ...result, complete: !graph.warnings?.length }, null, 2));
+  else if (values.markdown) process.stdout.write(formatChangeMarkdown(graph, result, { version: version() }));
+  else console.log(formatChangeImpact(graph, result));
+  return checkComplete(graph, values.strict);
+}
+
 function runUnpinned(args: string[]): number {
   const { values } = parseArgs({
     args,
@@ -221,6 +257,8 @@ async function main(argv: string[]): Promise<number> {
       return runReport(rest);
     case 'unpinned':
       return runUnpinned(rest);
+    case 'affected':
+      return runAffected(rest);
     case 'impact':
       return runImpact(rest);
     case 'drift':
