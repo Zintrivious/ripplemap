@@ -3,7 +3,7 @@ import { basename, join, relative, resolve, sep } from 'node:path';
 import { buildLinks } from './graph.ts';
 import { parsers as defaultParsers } from './parsers/index.ts';
 import { parseRepoUrl } from './refs.ts';
-import type { Graph, Parser, RepoInfo, RepoProduction, RepoUsage } from './types.ts';
+import type { Graph, Parser, RepoInfo, RepoProduction, RepoUsage, ScanWarning } from './types.ts';
 
 const SKIP_DIRS = new Set(['node_modules', '.terraform', 'vendor', '.venv', 'venv', 'bower_components', '__pycache__']);
 export const MAX_FILE_BYTES = 1024 * 1024;
@@ -16,11 +16,7 @@ export interface ScanOptions {
   parsers?: Parser[];
 }
 
-export interface ScanWarning {
-  repo: string;
-  file: string;
-  message: string;
-}
+export type { ScanWarning };
 
 export interface ScanResult {
   graph: Graph;
@@ -42,7 +38,7 @@ function isExcluded(file: string, exclude: string[]): boolean {
   });
 }
 
-const skipDir = (name: string) => SKIP_DIRS.has(name) || (name.startsWith('.') && name !== '.github');
+export const skipDir = (name: string) => SKIP_DIRS.has(name) || (name.startsWith('.') && name !== '.github');
 
 /**
  * Whether a repo-relative path should be read: some parser wants it, it is not excluded,
@@ -112,7 +108,13 @@ export function scanRepos(repos: LoadedRepo[], options: ScanOptions = {}, warnin
     for (const file of files) {
       const matching = parsers.filter((p) => p.matches(file.path));
       if (!matching.length) continue;
-      const content = file.read();
+      let content: string;
+      try {
+        content = file.read();
+      } catch (error) {
+        warnings.push({ repo: repo.id, file: file.path, message: `could not read: ${(error as Error).message}` });
+        continue;
+      }
       filesParsed++;
 
       for (const parser of matching) {
@@ -132,6 +134,7 @@ export function scanRepos(repos: LoadedRepo[], options: ScanOptions = {}, warnin
     graph: {
       schemaVersion: 1,
       generatedAt: new Date().toISOString(),
+      warnings,
       repos: repoInfos,
       usages,
       produces,
@@ -145,11 +148,25 @@ export function scanRepos(repos: LoadedRepo[], options: ScanOptions = {}, warnin
 /** Scans repos cloned on disk. */
 export function scan(rootDir: string, options: ScanOptions = {}): ScanResult {
   const root = resolve(rootDir);
+  const warnings: ScanWarning[] = [];
   const repos = findRepoDirs(root).map((repoDir): LoadedRepo => {
-    const files = [...walk(repoDir)]
-      .filter((file) => wantsFile(file, options) && statSync(join(repoDir, file)).size <= MAX_FILE_BYTES)
-      .map((path) => ({ path, read: () => readFileSync(join(repoDir, path), 'utf8') }));
-    return { repo: identify(repoDir, root, options.owner), files };
+    const repo = identify(repoDir, root, options.owner);
+    const files: LoadedRepo['files'] = [];
+    for (const path of walk(repoDir)) {
+      if (!wantsFile(path, options)) continue;
+      const abs = join(repoDir, path);
+      // If stat fails, read() fails too and reports it.
+      const size = (() => {
+        try {
+          return statSync(abs).size;
+        } catch {
+          return 0;
+        }
+      })();
+      if (size > MAX_FILE_BYTES) warnings.push({ repo: repo.id, file: path, message: 'skipped: larger than 1 MB' });
+      else files.push({ path, read: () => readFileSync(abs, 'utf8') });
+    }
+    return { repo, files };
   });
-  return scanRepos(repos, options);
+  return scanRepos(repos, options, warnings);
 }

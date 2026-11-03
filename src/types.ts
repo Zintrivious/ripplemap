@@ -81,11 +81,21 @@ export interface Link {
   confidence: Confidence;
 }
 
+/** Something that could not be read or parsed. Each one means dependencies may be missing from the graph. */
+export interface ScanWarning {
+  repo: string;
+  /** Empty when the problem concerns the whole repo (for example, its file list could not be fetched). */
+  file: string;
+  message: string;
+}
+
 export interface Graph {
   schemaVersion: 1;
   generatedAt: string;
   /** What was scanned: a folder path or "github.com/<org>". */
   source?: string;
+  /** Problems during the scan. Absent in graphs written before ripplemap 0.4. */
+  warnings?: ScanWarning[];
   repos: RepoInfo[];
   usages: RepoUsage[];
   produces: RepoProduction[];

@@ -37,6 +37,9 @@ Usage:
       A self-contained HTML page: an interactive impact graph and the drift table.
 
   ripplemap --version
+
+Every command takes --strict: exit with code 1 when the scan was incomplete (some files or repos
+could not be read or parsed), so a CI job never trusts a graph with missing dependencies.
 `;
 
 function version(): string {
@@ -50,6 +53,21 @@ function loadGraph(file: string): Graph {
   if (graph.schemaVersion !== 1) throw new Error(`${file} was written by an incompatible version of ripplemap. Re-run scan.`);
   return graph;
 }
+
+/** Warns on stderr when the scan behind a graph missed something. Returns the exit code to use. */
+function checkComplete(graph: Graph, strict: boolean): number {
+  const problems = graph.warnings?.length ?? 0;
+  if (!problems) return 0;
+  console.error(
+    yellow(
+      `Incomplete scan: ${plural(problems, 'file or repo')} could not be read or parsed, so some dependencies may be missing. ` +
+        'Re-run scan with --verbose to see them.',
+    ),
+  );
+  return strict ? 1 : 0;
+}
+
+const strictOption = { strict: { type: 'boolean', default: false } } as const;
 
 async function runScan(args: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
@@ -65,6 +83,7 @@ async function runScan(args: string[]): Promise<number> {
       'include-forks': { type: 'boolean', default: false },
       'include-archived': { type: 'boolean', default: false },
       'no-cache': { type: 'boolean', default: false },
+      ...strictOption,
     },
   });
   const dir = positionals[0];
@@ -101,12 +120,15 @@ async function runScan(args: string[]): Promise<number> {
   writeFileSync(values.out, JSON.stringify(graph, null, 2) + '\n');
   console.log(formatScanSummary(graph, source, filesParsed, mostDependedOn(graph), values.out));
 
-  if (warnings.length) {
+  if (!warnings.length) return 0;
+  console.log('');
+  if (values.verbose) {
+    for (const w of warnings) console.log(yellow(`warning: ${w.repo}${w.file ? `/${w.file}` : ''}: ${w.message}`));
     console.log('');
-    if (values.verbose) for (const w of warnings) console.log(yellow(`warning: ${w.repo}${w.file ? `/${w.file}` : ''}: ${w.message}`));
-    else console.log(yellow(`${plural(warnings.length, 'warning')} (files that could not be read or parsed). Run with --verbose to see them.`));
   }
-  return 0;
+  const code = checkComplete(graph, values.strict);
+  if (code) console.error(yellow('Failing because of --strict. The graph was still written so you can inspect it.'));
+  return code;
 }
 
 function runImpact(args: string[]): number {
@@ -116,14 +138,16 @@ function runImpact(args: string[]): number {
     options: {
       graph: { type: 'string', short: 'g', default: DEFAULT_GRAPH },
       json: { type: 'boolean', default: false },
+      ...strictOption,
     },
   });
   if (!positionals[0]) throw new Error('Usage: ripplemap impact <repo>');
   const graph = loadGraph(values.graph);
   const target = findRepo(graph, positionals[0]);
   const entries = impact(graph, target.id);
-  console.log(values.json ? JSON.stringify({ target: target.id, affected: entries }, null, 2) : formatImpact(graph, target.id, entries));
-  return 0;
+  const complete = !graph.warnings?.length;
+  console.log(values.json ? JSON.stringify({ target: target.id, complete, affected: entries }, null, 2) : formatImpact(graph, target.id, entries));
+  return checkComplete(graph, values.strict);
 }
 
 function runDrift(args: string[]): number {
@@ -135,6 +159,7 @@ function runDrift(args: string[]): number {
       kind: { type: 'string', multiple: true },
       json: { type: 'boolean', default: false },
       fail: { type: 'boolean', default: false },
+      ...strictOption,
     },
   });
   const kinds = values.kind as ArtifactKind[] | undefined;
@@ -144,7 +169,8 @@ function runDrift(args: string[]): number {
   const graph = loadGraph(values.graph);
   const entries = drift(graph, { internalOnly: values.internal, kinds });
   console.log(values.json ? JSON.stringify(entries, null, 2) : formatDrift(graph, entries));
-  return values.fail && entries.length ? 1 : 0;
+  const incomplete = checkComplete(graph, values.strict);
+  return values.fail && entries.length ? 1 : incomplete;
 }
 
 function runReport(args: string[]): number {
@@ -153,12 +179,13 @@ function runReport(args: string[]): number {
     options: {
       graph: { type: 'string', short: 'g', default: DEFAULT_GRAPH },
       out: { type: 'string', short: 'o', default: 'ripplemap.html' },
+      ...strictOption,
     },
   });
   const graph = loadGraph(values.graph);
   writeFileSync(values.out, renderReport(graph));
   console.log(`Wrote ${values.out} (${plural(graph.repos.length, 'repo')}, ${plural(graph.links.length, 'link')}). Open it in a browser.`);
-  return 0;
+  return checkComplete(graph, values.strict);
 }
 
 async function main(argv: string[]): Promise<number> {

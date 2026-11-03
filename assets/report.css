@@ -83,6 +83,12 @@ a:hover { text-decoration: underline; }
 .stats { margin-left: auto; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .stats b { color: var(--text); font-weight: 600; }
 
+.notice {
+  flex: none; padding: 8px 20px; font-size: 13px; border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--indirect) 16%, var(--surface)); color: var(--text);
+}
+.notice code { font-family: var(--mono); font-size: 12px; }
+
 main { flex: 1; min-height: 0; display: flex; }
 .tab { flex: 1; min-height: 0; }
 .tab[hidden] { display: none; }

@@ -24,6 +24,8 @@ interface FakeOptions {
   isUser?: boolean;
   rateLimited?: boolean;
   pushedAt?: string;
+  /** Repos whose recursive file listing comes back truncated. */
+  truncate?: string[];
 }
 
 /** A stand-in for the GitHub API and raw.githubusercontent.com, serving test/fixtures/acme as the "acme" org. */
@@ -61,16 +63,25 @@ function fakeGitHub(options: FakeOptions = {}) {
         const next: Record<string, string> = page === 1 ? { link: `<${API}${url.pathname}?per_page=100&page=2>; rel="next"` } : {};
         return json(page === 1 ? repos.slice(0, 4) : repos.slice(4), next);
       }
-      const tree = /^\/repos\/acme\/([^/]+)\/git\/trees\/main$/.exec(url.pathname);
+      // Trees are addressed by "main" for the repo root and by "dir:<path>" for subfolders.
+      const tree = /^\/repos\/acme\/([^/]+)\/git\/trees\/(.+)$/.exec(url.pathname);
       if (tree && names.includes(tree[1]!)) {
-        const dir = join(fixture, tree[1]!);
-        return json({
-          truncated: false,
-          tree: filesOf(dir).map((path) => {
-            const content = readFileSync(join(dir, path));
-            return { path, type: 'blob', size: content.length, sha: createHash('sha1').update(content).digest('hex') };
-          }),
-        });
+        const ref = decodeURIComponent(tree[2]!);
+        const sub = ref === 'main' ? '' : ref.replace(/^dir:/, '');
+        const dir = join(fixture, tree[1]!, sub);
+        const blob = (path: string) => {
+          const content = readFileSync(join(dir, path));
+          return { path, type: 'blob', size: content.length, sha: createHash('sha1').update(content).digest('hex') };
+        };
+        if (url.searchParams.get('recursive') === '1') {
+          // GitHub truncates recursive listings of huge repos; pretend these repos are huge.
+          if (ref === 'main' && options.truncate?.includes(tree[1]!)) return json({ truncated: true, tree: [] });
+          return json({ truncated: false, tree: filesOf(dir).map(blob) });
+        }
+        const entries = readdirSync(dir, { withFileTypes: true }).map((e) =>
+          e.isDirectory() ? { path: e.name, type: 'tree', sha: `dir:${sub ? `${sub}/` : ''}${e.name}` } : blob(e.name),
+        );
+        return json({ truncated: false, tree: entries });
       }
       return new Response('{"message":"Not Found"}', { status: 404 });
     }
@@ -145,4 +156,23 @@ test('falls back to the user endpoint for personal accounts', async () => {
 test('explains rate limiting instead of failing with a bare 403', async () => {
   await assert.rejects(run(fakeGitHub({ rateLimited: true })), /rate limit reached/);
   await assert.rejects(run(fakeGitHub({ rateLimited: true }), { token: '' }), /Set GITHUB_TOKEN/);
+});
+
+test('lists truncated repos folder by folder instead of scanning part of them', async () => {
+  const fake = fakeGitHub({ truncate: ['api', 'base-images'] });
+  const result = await run(fake);
+  assert.deepEqual(result.warnings, []);
+  assert.deepEqual(linkList(result.graph), linkList(scan(fixture, { owner: 'acme' }).graph));
+  // .github is fetched as its own subtree; nothing else in those repos needed one.
+  assert.ok(fake.requests.some((r) => r.startsWith('/repos/acme/api/git/trees/dir%3A.github')));
+});
+
+test('records files it could not download as warnings in the graph', async () => {
+  const fake = fakeGitHub();
+  const flaky = (async (input: string | URL | Request) =>
+    String(input).endsWith('/api/refs/heads/main/Dockerfile') ? new Response('boom', { status: 500 }) : fake.fetchFn(input)) as typeof fetch;
+  const result = await run(fake, { fetch: flaky });
+  assert.equal(result.graph.warnings?.length, 1);
+  assert.match(result.graph.warnings![0]!.message, /500/);
+  assert.equal(result.graph.warnings![0]!.file, 'Dockerfile');
 });

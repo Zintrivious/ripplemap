@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { drift, findRepo, impact } from '../src/graph.ts';
-import { scan } from '../src/scan.ts';
+import { scan, scanRepos } from '../src/scan.ts';
 
 const fixture = fileURLToPath(new URL('./fixtures/acme', import.meta.url));
 const { graph, warnings } = scan(fixture, { owner: 'acme' });
@@ -74,4 +74,20 @@ test('repos without an owner still link by name', () => {
   const { graph: unowned } = scan(fixture);
   assert.equal(unowned.repos[0]?.id, 'api');
   assert.ok(unowned.links.some((l) => l.from === 'web' && l.to === 'ci' && l.kind === 'workflow'));
+});
+
+test('a file that cannot be read becomes a warning instead of stopping the scan', () => {
+  const repo = { id: 'acme/broken', owner: 'acme', name: 'broken', path: 'broken' };
+  const result = scanRepos([
+    {
+      repo,
+      files: [
+        { path: 'Dockerfile', read: () => { throw new Error('EACCES: permission denied'); } },
+        { path: 'compose.yml', read: () => 'services:\n  app:\n    image: ghcr.io/acme/api:1\n' },
+      ],
+    },
+  ]);
+  assert.equal(result.graph.warnings?.length, 1);
+  assert.match(result.graph.warnings![0]!.message, /could not read: EACCES/);
+  assert.equal(result.graph.usages.length, 1);
 });

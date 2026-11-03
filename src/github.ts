@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { MAX_FILE_BYTES, scanRepos, wantsFile, type LoadedRepo, type ScanOptions, type ScanResult, type ScanWarning } from './scan.ts';
+import { MAX_FILE_BYTES, scanRepos, skipDir, wantsFile, type LoadedRepo, type ScanOptions, type ScanResult, type ScanWarning } from './scan.ts';
 import type { RepoInfo } from './types.ts';
 
 export interface GitHubScanOptions extends Omit<ScanOptions, 'owner'> {
@@ -180,6 +180,28 @@ export async function scanGitHub(options: GitHubScanOptions): Promise<GitHubScan
     return content;
   };
 
+  /**
+   * The full file list of a tree. GitHub truncates recursive listings of very large repos,
+   * so when that happens this lists the folder and fetches each subfolder on its own,
+   * skipping folders the scanner never reads (node_modules, vendor, dot-folders).
+   */
+  const listTree = async (repo: ApiRepo, ref: string, prefix: string): Promise<ApiTree> => {
+    const base = `/repos/${repo.full_name}/git/trees/${encodeURIComponent(ref)}`;
+    const full = await client.json<ApiTree>(`${base}?recursive=1`);
+    const withPrefix = (entries: ApiTree['tree']) => entries.map((e) => ({ ...e, path: prefix + e.path }));
+    if (!full.truncated) return { tree: withPrefix(full.tree), truncated: false };
+
+    const top = await client.json<ApiTree>(base);
+    const tree = withPrefix(top.tree.filter((e) => e.type !== 'tree'));
+    let truncated = top.truncated;
+    for (const dir of top.tree.filter((e) => e.type === 'tree' && !skipDir(e.path))) {
+      const sub = await listTree(repo, dir.sha, `${prefix}${dir.path}/`);
+      tree.push(...sub.tree);
+      truncated ||= sub.truncated;
+    }
+    return { tree, truncated };
+  };
+
   /** File listings change only when someone pushes, so they are cached until `pushed_at` moves. */
   const readTree = async (repo: ApiRepo): Promise<ApiTree> => {
     const cached = cacheDir && repo.pushed_at && join(cacheDir, 'trees', `${repo.full_name.replace('/', '__')}.json`);
@@ -187,7 +209,7 @@ export async function scanGitHub(options: GitHubScanOptions): Promise<GitHubScan
       const entry = JSON.parse(readFileSync(cached, 'utf8')) as { pushedAt: string; branch: string; tree: ApiTree };
       if (entry.pushedAt === repo.pushed_at && entry.branch === repo.default_branch) return entry.tree;
     }
-    const tree = await client.json<ApiTree>(`/repos/${repo.full_name}/git/trees/${encodeURIComponent(repo.default_branch)}?recursive=1`);
+    const tree = await listTree(repo, repo.default_branch, '');
     if (cached) {
       mkdirSync(join(cacheDir, 'trees'), { recursive: true });
       writeFileSync(cached, JSON.stringify({ pushedAt: repo.pushed_at, branch: repo.default_branch, tree }));
@@ -211,9 +233,14 @@ export async function scanGitHub(options: GitHubScanOptions): Promise<GitHubScan
     try {
       const tree = await readTree(apiRepo);
       if (tree.truncated) {
-        warnings.push({ repo: repo.id, file: '', message: 'repo is too large for one tree request; some files were not scanned' });
+        warnings.push({ repo: repo.id, file: '', message: 'a folder has too many files for the GitHub API to list; some files were not scanned' });
       }
-      const wanted = tree.tree.filter((e) => e.type === 'blob' && (e.size ?? 0) <= MAX_FILE_BYTES && wantsFile(e.path, options));
+      const wanted = [];
+      for (const entry of tree.tree) {
+        if (entry.type !== 'blob' || !wantsFile(entry.path, options)) continue;
+        if ((entry.size ?? 0) > MAX_FILE_BYTES) warnings.push({ repo: repo.id, file: entry.path, message: 'skipped: larger than 1 MB' });
+        else wanted.push(entry);
+      }
       await pool(wanted, 4, async (entry) => {
         try {
           const content = await readBlob(apiRepo, entry.path, entry.sha);

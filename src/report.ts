@@ -14,6 +14,7 @@ export function reportData(graph: Graph) {
   return {
     source: graph.source ?? '',
     generatedAt: graph.generatedAt,
+    problems: graph.warnings?.length ?? 0,
     owner: owners.size === 1 ? [...owners][0]! : '',
     repos: graph.repos.map((r) => ({ id: r.id, url: r.url ?? '' })),
     links: graph.links.map((l) => ({
@@ -60,6 +61,11 @@ ${asset('report.css')}
   </nav>
   <div class="stats" id="stats"></div>
 </header>
+${
+  data.problems
+    ? `<div class="notice" role="status"><b>Incomplete scan.</b> ${data.problems} ${data.problems === 1 ? 'file or repo' : 'files or repos'} could not be read or parsed, so some dependencies may be missing. Run <code>ripplemap scan --verbose</code> to see which.</div>`
+    : ''
+}
 <main>
   <section id="tab-impact" class="tab impact">
     <div class="graph-wrap">

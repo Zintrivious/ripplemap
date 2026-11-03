@@ -43,3 +43,9 @@ test('values from scanned files cannot break out of the page', () => {
   assert.doesNotMatch(html, /<img src=x/);
   assert.equal(embedded(html).links[0]!.name, '</script><script>alert(1)</script>');
 });
+
+test('an incomplete scan shows a notice in the report', () => {
+  assert.doesNotMatch(renderReport(graph), /Incomplete scan/);
+  const incomplete = { ...graph, warnings: [{ repo: 'acme/api', file: 'Dockerfile', message: 'could not read' }] };
+  assert.match(renderReport(incomplete), /<b>Incomplete scan.<\/b> 1 file or repo could not be read/);
+});
