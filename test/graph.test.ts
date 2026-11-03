@@ -129,11 +129,11 @@ test('unpinned lists floating references to things built in the scanned repos', 
   assert.ok(isUnpinned('main') && isUnpinned('default branch') && !isUnpinned('v1') && !isUnpinned('^2.1.0'));
 });
 
-test('images link to repos named docker-<image> or <image>-docker', () => {
-  const repos = ['docker-baseimage-alpine', 'nginx-docker', 'app'].map((name) => ({ id: `lsio/${name}`, owner: 'lsio', name, path: name }));
+test('images link to repos named docker-<image>, <image>-docker, or the image name without punctuation', () => {
+  const repos = ['docker-baseimage-alpine', 'nginx-docker', 'argo-cd', 'app'].map((name) => ({ id: `lsio/${name}`, owner: 'lsio', name, path: name }));
   const use = (name: string) => ({ repo: 'lsio/app', kind: 'image' as const, name, version: '3.20', location: { file: 'Dockerfile', line: 1 } });
-  const links = buildLinks(repos, [use('ghcr.io/lsio/baseimage-alpine'), use('ghcr.io/lsio/nginx'), use('ghcr.io/lsio/unknown')], []);
-  assert.deepEqual(links.map((l) => `${l.to} ${l.confidence}`), ['lsio/docker-baseimage-alpine convention', 'lsio/nginx-docker convention']);
+  const links = buildLinks(repos, [use('ghcr.io/lsio/baseimage-alpine'), use('ghcr.io/lsio/nginx'), use('quay.io/lsio/argocd'), use('ghcr.io/lsio/unknown')], []);
+  assert.deepEqual(links.map((l) => `${l.to} ${l.confidence}`), ['lsio/docker-baseimage-alpine convention', 'lsio/nginx-docker convention', 'lsio/argo-cd convention']);
 });
 
 test('drift treats per-architecture image tags as one release', () => {

@@ -19,6 +19,16 @@ function isOtherYaml(file: string): boolean {
   );
 }
 
+function imageLines(file: string, content: string): Usage[] {
+  const uses: Usage[] = [];
+  content.split(/\r?\n/).forEach((text, i) => {
+    const value = /^\s*(?:-\s*)?image:\s*["']?([^\s"'#]+)/.exec(text)?.[1];
+    const image = value && parseImageRef(value);
+    if (image) uses.push({ kind: 'image', ...image, location: { file, line: i + 1 } });
+  });
+  return uses;
+}
+
 export const kubernetesParser: Parser = {
   id: 'kubernetes',
 
@@ -34,10 +44,16 @@ export const kubernetesParser: Parser = {
       return { uses, produces: [] };
     }
 
+    // Multi-MB install bundles: scanning lines is much faster than building a YAML tree, and finds the same images.
+    if (content.length > 2 * 1024 * 1024) return { uses: imageLines(file, content), produces: [] };
+
     const lineCounter = new LineCounter();
     const docs = parseAllDocuments(content, { lineCounter });
-    for (const doc of Array.isArray(docs) ? docs : []) {
-      if (doc.errors.length) throw new Error(doc.errors[0]!.message);
+    const list = Array.isArray(docs) ? docs : [];
+    // Kubernetes reads YAML more forgivingly than the spec allows (multi-line quoted strings, for one).
+    // Image references are all this parser takes, so reading `image:` lines directly loses nothing.
+    if (list.some((doc) => doc.errors.length)) return { uses: imageLines(file, content), produces: [] };
+    for (const doc of list) {
       visit(doc, {
         Pair(_, pair) {
           if (!isScalar(pair.key) || !CONTAINER_KEYS.has(String(pair.key.value)) || !isSeq(pair.value)) return;

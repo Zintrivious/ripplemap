@@ -176,3 +176,12 @@ test('records files it could not download as warnings in the graph', async () =>
   assert.match(result.graph.warnings![0]!.message, /500/);
   assert.equal(result.graph.warnings![0]!.file, 'Dockerfile');
 });
+
+test('a repo that fails for any reason becomes a warning; the rest of the org is still scanned', async () => {
+  const fake = fakeGitHub();
+  const broken = (async (input: string | URL | Request) =>
+    String(input).includes('/repos/acme/web/git/trees') ? Promise.reject(new TypeError('socket hang up')) : fake.fetchFn(input)) as typeof fetch;
+  const result = await run(fake, { fetch: broken });
+  assert.equal(result.graph.repos.length, 7);
+  assert.deepEqual(result.graph.warnings?.map((w) => `${w.repo}: ${w.message}`), ['acme/web: socket hang up']);
+});

@@ -51,6 +51,9 @@ class GitHubError extends Error {
   }
 }
 
+/** Stops the whole scan: every later request would fail the same way. */
+class RateLimitError extends Error {}
+
 /** A token from the environment or the GitHub CLI, if either has one. */
 export function findToken(): string | undefined {
   const fromEnv = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
@@ -88,7 +91,7 @@ class GitHubClient {
       const reset = Number(res.headers.get('x-ratelimit-reset')) * 1000;
       const when = reset ? ` It resets at ${new Date(reset).toLocaleTimeString()}.` : '';
       const hint = this.authenticated ? '' : ' Set GITHUB_TOKEN or run "gh auth login" to get 5,000 requests an hour instead of 60.';
-      throw new Error(`GitHub API rate limit reached.${when}${hint}`);
+      throw new RateLimitError(`GitHub API rate limit reached.${when}${hint}`);
     }
     if (!res.ok) throw new GitHubError(res.status, `GitHub returned ${res.status} for ${url.replace(this.apiUrl, '')}`);
     return res;
@@ -196,7 +199,8 @@ export async function scanGitHub(options: GitHubScanOptions): Promise<GitHubScan
     let truncated = top.truncated;
     for (const dir of top.tree.filter((e) => e.type === 'tree' && !skipDir(e.path))) {
       const sub = await listTree(repo, dir.sha, `${prefix}${dir.path}/`);
-      tree.push(...sub.tree);
+      // Not push(...sub.tree): spreading 100k+ entries overflows the call stack.
+      for (const entry of sub.tree) tree.push(entry);
       truncated ||= sub.truncated;
     }
     return { tree, truncated };
@@ -238,7 +242,7 @@ export async function scanGitHub(options: GitHubScanOptions): Promise<GitHubScan
       const wanted = [];
       for (const entry of tree.tree) {
         if (entry.type !== 'blob' || !wantsFile(entry.path, options)) continue;
-        if ((entry.size ?? 0) > MAX_FILE_BYTES) warnings.push({ repo: repo.id, file: entry.path, message: 'skipped: larger than 1 MB' });
+        if ((entry.size ?? 0) > MAX_FILE_BYTES) warnings.push({ repo: repo.id, file: entry.path, message: 'skipped: larger than 32 MB' });
         else wanted.push(entry);
       }
       await pool(wanted, 4, async (entry) => {
@@ -246,15 +250,17 @@ export async function scanGitHub(options: GitHubScanOptions): Promise<GitHubScan
           const content = await readBlob(apiRepo, entry.path, entry.sha);
           files.push({ path: entry.path, read: () => content });
         } catch (error) {
+          if (error instanceof RateLimitError) throw error;
           warnings.push({ repo: repo.id, file: entry.path, message: (error as Error).message });
         }
       });
       files.sort((a, b) => a.path.localeCompare(b.path));
     } catch (error) {
-      // 409 means the repo is empty.
+      // A rate limit stops everything. Anything else stays with this repo: one bad repo never ends the scan.
+      if (error instanceof RateLimitError) throw error;
+      // 409 means the repo is empty, so nothing is missing.
       if (!(error instanceof GitHubError && error.status === 409)) {
-        if (!(error instanceof GitHubError)) throw error;
-        warnings.push({ repo: repo.id, file: '', message: error.message });
+        warnings.push({ repo: repo.id, file: '', message: (error as Error).message });
       }
     }
     options.onProgress?.(++done, selected.length);

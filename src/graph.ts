@@ -3,15 +3,25 @@ import type { ArtifactKind, Graph, Link, RepoInfo, RepoProduction, RepoUsage } f
 
 const key = (kind: ArtifactKind, name: string) => `${kind}\0${name}`;
 
+const loose = (name: string) => name.replace(/[^a-z0-9]/g, '');
+
 class RepoIndex {
   private byId = new Map<string, RepoInfo>();
   private byName = new Map<string, RepoInfo[]>();
+  private byLooseName = new Map<string, RepoInfo[]>();
 
   constructor(repos: RepoInfo[]) {
     for (const repo of repos) {
       this.byId.set(repo.id, repo);
       this.byName.set(repo.name, [...(this.byName.get(repo.name) ?? []), repo]);
+      this.byLooseName.set(loose(repo.name), [...(this.byLooseName.get(loose(repo.name)) ?? []), repo]);
     }
+  }
+
+  /** Like find, ignoring punctuation (argocd matches argo-cd). Only when exactly one repo fits. */
+  findLoose(owner: string | undefined, name: string): RepoInfo | undefined {
+    const candidates = (this.byLooseName.get(loose(name)) ?? []).filter((r) => !owner || !r.owner || r.owner === owner);
+    return candidates.length === 1 ? candidates[0] : undefined;
   }
 
   /** Finds "owner/name". Falls back to the name alone when exactly one repo has it and its owner is unknown. */
@@ -51,8 +61,9 @@ export function buildLinks(repos: RepoInfo[], usages: RepoUsage[], produces: Rep
     if (!targets.length && usage.kind === 'image') {
       const guess = guessImageRepo(usage.name);
       // Image repos are often named for the image with a prefix or suffix: baseimage-alpine is built in docker-baseimage-alpine.
+      // Failing those, ignore punctuation: quay.io/argoproj/argocd is built in argo-cd.
       const names = guess ? [guess.name, `docker-${guess.name}`, `${guess.name}-docker`] : [];
-      const repo = names.map((name) => index.find(guess!.owner, name)).find(Boolean);
+      const repo = names.map((name) => index.find(guess!.owner, name)).find(Boolean) ?? (guess && index.findLoose(guess.owner, guess.name));
       if (repo) targets.push({ repo: repo.id, confidence: 'convention' });
     }
 

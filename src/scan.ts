@@ -11,7 +11,8 @@ const SKIP_DIRS = new Set([
   // Test data: deliberately fake (sometimes deliberately broken) manifests.
   'fixture', 'fixtures', '__fixtures__', 'testdata', '__snapshots__',
 ]);
-export const MAX_FILE_BYTES = 1024 * 1024;
+/** Generated install bundles and CRDs can run past 10 MB, and they reference real images. */
+export const MAX_FILE_BYTES = 32 * 1024 * 1024;
 
 export interface ScanOptions {
   /** Owner to use for repos without a git remote, e.g. your GitHub org. */
@@ -169,7 +170,7 @@ export function scan(rootDir: string, options: ScanOptions = {}): ScanResult {
           return 0;
         }
       })();
-      if (size > MAX_FILE_BYTES) warnings.push({ repo: repo.id, file: path, message: 'skipped: larger than 1 MB' });
+      if (size > MAX_FILE_BYTES) warnings.push({ repo: repo.id, file: path, message: 'skipped: larger than 32 MB' });
       else files.push({ path, read: () => readFileSync(abs, 'utf8') });
     }
     return { repo, files };

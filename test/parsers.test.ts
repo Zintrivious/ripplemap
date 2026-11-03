@@ -365,3 +365,11 @@ test('actions: a malformed workflow still yields its uses: lines, with a warning
   assert.equal(result.warnings?.length, 1);
   assert.match(result.warnings![0]!, /not valid YAML/);
 });
+
+test('kubernetes: manifests only Kubernetes accepts still yield their images', () => {
+  // Valid for Kubernetes, but a strict YAML parser rejects the multi-line string closing at the key's indentation.
+  const lenient = ['apiVersion: argoproj.io/v1alpha1', 'kind: Workflow', 'spec:', '  templates:', '  - name: main', '    container:', '      image: alpine:3.20', '      args: ["', '        echo hi', '      "]'].join('\n');
+  const result = run(kubernetesParser, 'examples/sidecar.yaml', lenient);
+  assert.deepEqual(brief(result.uses), ['alpine 3.20 L7']);
+  assert.equal(result.warnings, undefined);
+});
