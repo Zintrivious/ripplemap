@@ -66,7 +66,7 @@ function checkComplete(graph: Graph, strict: boolean): number {
   if (!problems) return 0;
   console.error(
     yellow(
-      `Incomplete scan: ${plural(problems, 'file or repo')} could not be read or parsed, so some dependencies may be missing. ` +
+      `Incomplete scan: ${problems === 1 ? '1 file or repo' : `${problems} files or repos`} could not be read or parsed, so some dependencies may be missing. ` +
         'Re-run scan with --verbose to see them.',
     ),
   );

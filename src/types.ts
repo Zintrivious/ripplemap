@@ -54,6 +54,8 @@ export interface ParseContext {
 export interface ParseResult {
   uses: Usage[];
   produces: Production[];
+  /** The file was only partly readable. Each message becomes a scan warning. */
+  warnings?: string[];
 }
 
 export interface Parser {

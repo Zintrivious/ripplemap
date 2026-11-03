@@ -99,7 +99,11 @@ export const actionsParser: Parser = {
   parse({ repo, file, content }) {
     const lineCounter = new LineCounter();
     const doc = parseDocument(content, { lineCounter });
-    if (doc.errors.length) throw new Error(doc.errors[0]!.message);
+    if (doc.errors.length) {
+      // Still read every `uses:` line, so a malformed file doesn't hide what it depends on.
+      const first = doc.errors[0]!.message.split('\n')[0];
+      return { uses: usesLines(file, content), produces: [], warnings: [`not valid YAML (${first}); only its uses: lines were read`] };
+    }
     const lineOf = (offset = 0) => lineCounter.linePos(offset).line;
 
     const uses: Usage[] = [];
@@ -128,6 +132,17 @@ export const actionsParser: Parser = {
     return { uses, produces };
   },
 };
+
+/** `uses:` references found line by line, for files the YAML parser rejects. */
+function usesLines(file: string, content: string): Usage[] {
+  const uses: Usage[] = [];
+  content.split(/\r?\n/).forEach((text, i) => {
+    const value = /^\s*(?:-\s*)?uses:\s*["']?([^\s"'#]+)/.exec(text)?.[1];
+    const ref = value && parseUses(value);
+    if (ref) uses.push({ ...ref, location: { file, line: i + 1 } });
+  });
+  return uses;
+}
 
 /** Images jobs run in: `jobs.<id>.container` (a string or `{ image }`) and `jobs.<id>.services.<name>.image`. */
 function jobImages(doc: Document, base: Vars): { node: Scalar; vars: Vars }[] {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { drift, findRepo, impact, isUnpinned, unpinned } from '../src/graph.ts';
+import { buildLinks, drift, findRepo, imageRelease, impact, isUnpinned, unpinned } from '../src/graph.ts';
 import { scan, scanRepos } from '../src/scan.ts';
 
 const fixture = fileURLToPath(new URL('./fixtures/acme', import.meta.url));
@@ -127,4 +127,18 @@ test('unpinned lists floating references to things built in the scanned repos', 
   assert.ok(all.includes('ghcr.io/acme/api'));
   assert.ok(!all.includes('postgres'));
   assert.ok(isUnpinned('main') && isUnpinned('default branch') && !isUnpinned('v1') && !isUnpinned('^2.1.0'));
+});
+
+test('images link to repos named docker-<image> or <image>-docker', () => {
+  const repos = ['docker-baseimage-alpine', 'nginx-docker', 'app'].map((name) => ({ id: `lsio/${name}`, owner: 'lsio', name, path: name }));
+  const use = (name: string) => ({ repo: 'lsio/app', kind: 'image' as const, name, version: '3.20', location: { file: 'Dockerfile', line: 1 } });
+  const links = buildLinks(repos, [use('ghcr.io/lsio/baseimage-alpine'), use('ghcr.io/lsio/nginx'), use('ghcr.io/lsio/unknown')], []);
+  assert.deepEqual(links.map((l) => `${l.to} ${l.confidence}`), ['lsio/docker-baseimage-alpine convention', 'lsio/nginx-docker convention']);
+});
+
+test('drift treats per-architecture image tags as one release', () => {
+  assert.equal(imageRelease('arm64v8-3.24'), '3.24');
+  assert.equal(imageRelease('3.24-amd64'), '3.24');
+  assert.equal(imageRelease('amd64'), 'amd64');
+  assert.equal(imageRelease('debiantrixie'), 'debiantrixie');
 });

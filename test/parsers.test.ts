@@ -354,3 +354,14 @@ test('python: pyproject.toml in PEP 621 and Poetry form', () => {
   assert.deepEqual(poetry.produces.map((p) => p.name), ['acme-worker']);
   assert.deepEqual(brief(poetry.uses), ['acme-utils ^2.0 L5', 'acme-auth v3.0 L6', 'pytest ^8.0 L9']);
 });
+
+test('actions: a malformed workflow still yields its uses: lines, with a warning', () => {
+  const result = run(
+    actionsParser,
+    '.github/workflows/trigger.yml',
+    ['jobs:', '  check:', '    steps:', '      - uses: actions/checkout@v4', '      - run: |', '          X=$(curl', ')', '      - uses: acme/ci/.github/workflows/build.yml@v2'].join('\n'),
+  );
+  assert.deepEqual(brief(result.uses), ['actions/checkout v4 L4', 'acme/ci/.github/workflows/build.yml v2 L8']);
+  assert.equal(result.warnings?.length, 1);
+  assert.match(result.warnings![0]!, /not valid YAML/);
+});

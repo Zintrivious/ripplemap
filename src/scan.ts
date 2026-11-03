@@ -122,6 +122,7 @@ export function scanRepos(repos: LoadedRepo[], options: ScanOptions = {}, warnin
           const result = parser.parse({ repo, file: file.path, content });
           for (const u of result.uses) usages.push({ ...u, repo: repo.id });
           for (const p of result.produces) produces.push({ ...p, repo: repo.id });
+          for (const message of result.warnings ?? []) warnings.push({ repo: repo.id, file: file.path, message: `${parser.id}: ${message}` });
         } catch (error) {
           warnings.push({ repo: repo.id, file: file.path, message: `${parser.id}: ${(error as Error).message}` });
         }

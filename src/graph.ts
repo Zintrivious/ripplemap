@@ -50,7 +50,9 @@ export function buildLinks(repos: RepoInfo[], usages: RepoUsage[], produces: Rep
     }
     if (!targets.length && usage.kind === 'image') {
       const guess = guessImageRepo(usage.name);
-      const repo = guess && index.find(guess.owner, guess.name);
+      // Image repos are often named for the image with a prefix or suffix: baseimage-alpine is built in docker-baseimage-alpine.
+      const names = guess ? [guess.name, `docker-${guess.name}`, `${guess.name}-docker`] : [];
+      const repo = names.map((name) => index.find(guess!.owner, name)).find(Boolean);
       if (repo) targets.push({ repo: repo.id, confidence: 'convention' });
     }
 
@@ -127,6 +129,13 @@ export interface DriftEntry {
   repoCount: number;
 }
 
+const ARCH = '(?:amd64|arm64v8|arm64|arm32v7|arm32v6|armhf|aarch64|x86_64|i386|ppc64le|s390x|riscv64)';
+const ARCH_PREFIX = new RegExp(`^${ARCH}[-_]`, 'i');
+const ARCH_SUFFIX = new RegExp(`[-_]${ARCH}$`, 'i');
+
+/** Per-architecture tags of one release (3.24, arm64v8-3.24, 3.24-amd64) count as the same version. */
+export const imageRelease = (tag: string) => tag.replace(ARCH_PREFIX, '').replace(ARCH_SUFFIX, '') || tag;
+
 /** Newest first for version-like strings (1.4, v2, ^2.1.0); anything else (latest, main, SHAs) after them. */
 function compareVersionsDesc(a: string, b: string): number {
   const numeric = (v: string) => /^[\^~>=v\s]*\d/.test(v);
@@ -159,7 +168,8 @@ export function drift(graph: Graph, options: DriftOptions = {}): DriftEntry[] {
     // A repo pinning an old release of itself (often in examples/) is not drift between repos.
     if (producers.get(k)?.has(usage.repo)) continue;
     const versions = groups.get(k) ?? new Map<string, RepoUsage[]>();
-    versions.set(usage.version, [...(versions.get(usage.version) ?? []), usage]);
+    const version = usage.kind === 'image' ? imageRelease(usage.version) : usage.version;
+    versions.set(version, [...(versions.get(version) ?? []), usage]);
     groups.set(k, versions);
   }
 
