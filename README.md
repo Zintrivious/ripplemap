@@ -25,7 +25,7 @@ base-images
 
 ## Quick start
 
-Requires Node.js 20 or newer. Point it at your GitHub org; you don't need to clone anything:
+Requires Node.js 22 or newer. Point it at your GitHub org; you don't need to clone anything:
 
 ```bash
 npx ripplemap scan --org my-org

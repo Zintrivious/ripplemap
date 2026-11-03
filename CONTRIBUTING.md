@@ -7,7 +7,7 @@ Thanks for helping. Bug reports with a real file that ripplemap misreads are as 
 ```bash
 git clone https://github.com/Zintrivious/ripplemap && cd ripplemap
 npm install
-npm test          # runs the TypeScript sources directly (Node 22.18+ or 24)
+npm test          # runs the TypeScript sources directly (Node 22, 24 or 26)
 npm run typecheck
 npm run build     # compiles to dist/
 node dist/cli.js scan test/fixtures/acme --owner acme

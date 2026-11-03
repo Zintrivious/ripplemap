@@ -7,27 +7,23 @@ on:
 
 jobs:
   test:
+    name: Node ${{ matrix.node }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Every Node.js release line still in support.
+        node: [22, 24, 26]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: 24
+          node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
-
-  # The published CLI supports Node 20, which can't run the TypeScript tests directly.
-  node-20:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
-      - run: node dist/cli.js scan test/fixtures/acme --owner acme
-      - run: node dist/cli.js impact base-images
-      - run: node dist/cli.js report
+      # The built CLI, the way users run it.
+      - run: node dist/cli.js scan test/fixtures/acme --owner acme --strict
+      - run: node dist/cli.js impact base-images --strict
+      - run: node dist/cli.js report --strict
