@@ -1,0 +1,7 @@
+apiVersion: v2
+name: reports
+version: 0.3.0
+dependencies:
+  - name: base-chart
+    version: ^1.0.0
+    repository: oci://ghcr.io/acme/charts

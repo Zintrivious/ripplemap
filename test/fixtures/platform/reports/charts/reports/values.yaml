@@ -1,0 +1,4 @@
+migrations:
+  image:
+    repository: ghcr.io/acme/migrator
+    tag: "3.1"

@@ -3,9 +3,11 @@ import { test } from 'node:test';
 import { actionsParser } from '../src/parsers/actions.ts';
 import { composeParser } from '../src/parsers/compose.ts';
 import { dockerfileParser } from '../src/parsers/dockerfile.ts';
+import { goModParser } from '../src/parsers/gomod.ts';
 import { helmParser } from '../src/parsers/helm.ts';
 import { kubernetesParser } from '../src/parsers/kubernetes.ts';
 import { npmParser } from '../src/parsers/npm.ts';
+import { pythonParser } from '../src/parsers/python.ts';
 import { terraformParser } from '../src/parsers/terraform.ts';
 import type { Parser, RepoInfo } from '../src/types.ts';
 
@@ -264,4 +266,91 @@ test('helm: values files yield images in both common layouts', () => {
     ].join('\n'),
   );
   assert.deepEqual(brief(uses), ['ghcr.io/acme/api 1.4 L2', 'ghcr.io/acme/worker chart default L8', 'ghcr.io/acme/proxy 0.9 L11']);
+});
+
+test('go: go.mod produces the module and uses direct requirements', () => {
+  const result = run(
+    goModParser,
+    'go.mod',
+    [
+      'module github.com/acme/api/v2',
+      '',
+      'go 1.23',
+      '',
+      'require github.com/acme/utils v1.4.0',
+      '',
+      'require (',
+      '\tgithub.com/acme/log/v3 v3.0.1',
+      '\tgolang.org/x/sync v0.8.0',
+      '\tgithub.com/pkg/errors v0.9.1 // indirect',
+      ')',
+      '',
+      'replace github.com/acme/utils => ../utils',
+    ].join('\n'),
+  );
+  assert.deepEqual(result.produces.map((p) => p.name), ['github.com/acme/api/v2']);
+  assert.deepEqual(brief(result.uses), ['github.com/acme/utils v1.4.0 L5', 'github.com/acme/log/v3 v3.0.1 L8', 'golang.org/x/sync v0.8.0 L9']);
+  assert.deepEqual(result.uses.map((u) => u.repoHint), ['acme/utils', 'acme/log', undefined]);
+});
+
+test('python: requirements files, including git URLs', () => {
+  assert.ok(pythonParser.matches('requirements.txt'));
+  assert.ok(pythonParser.matches('services/api/requirements-dev.txt'));
+  assert.ok(!pythonParser.matches('docs/requirements.md'));
+  const { uses } = run(
+    pythonParser,
+    'requirements.txt',
+    [
+      '# runtime',
+      'Acme_Utils==2.1.0',
+      'requests[security]>=2.31,<3  # http',
+      '-r base.txt',
+      '--index-url https://pypi.acme.dev/simple',
+      'git+https://github.com/acme/billing-client.git@v1.2.0#egg=billing-client',
+      '-e ./local-package',
+      'pydantic; python_version >= "3.9"',
+    ].join('\n'),
+  );
+  assert.deepEqual(brief(uses), ['acme-utils ==2.1.0 L2', 'requests >=2.31,<3 L3', 'billing-client v1.2.0 L6', 'pydantic unpinned L8']);
+  assert.equal(uses[2]?.repoHint, 'acme/billing-client');
+});
+
+test('python: pyproject.toml in PEP 621 and Poetry form', () => {
+  const pep621 = run(
+    pythonParser,
+    'pyproject.toml',
+    [
+      '[project]',
+      'name = "acme.api"',
+      'dependencies = [',
+      '  "acme-utils>=2",',
+      '  "acme-auth @ git+https://github.com/acme/auth@v3.1",',
+      ']',
+      '[project.optional-dependencies]',
+      'dev = ["pytest>=8"]',
+      '[dependency-groups]',
+      'lint = ["ruff==0.6.0"]',
+    ].join('\n'),
+  );
+  assert.deepEqual(pep621.produces.map((p) => p.name), ['acme-api']);
+  assert.deepEqual(brief(pep621.uses), ['acme-utils >=2 L4', 'acme-auth v3.1 L5', 'pytest >=8 L8', 'ruff ==0.6.0 L10']);
+  assert.equal(pep621.uses[1]?.repoHint, 'acme/auth');
+
+  const poetry = run(
+    pythonParser,
+    'pyproject.toml',
+    [
+      '[tool.poetry]',
+      'name = "acme-worker"',
+      '[tool.poetry.dependencies]',
+      'python = "^3.12"',
+      'acme-utils = "^2.0"',
+      'acme-auth = { git = "https://github.com/acme/auth.git", tag = "v3.0" }',
+      'local-lib = { path = "../local-lib" }',
+      '[tool.poetry.group.dev.dependencies]',
+      'pytest = { version = "^8.0" }',
+    ].join('\n'),
+  );
+  assert.deepEqual(poetry.produces.map((p) => p.name), ['acme-worker']);
+  assert.deepEqual(brief(poetry.uses), ['acme-utils ^2.0 L5', 'acme-auth v3.0 L6', 'pytest ^8.0 L9']);
 });

@@ -86,7 +86,7 @@ cloudposse/utils/aws  module · built in terraform-aws-utils · 2 versions acros
 | Option | |
 |---|---|
 | `--internal` | Only things built in your scanned repos (hides `actions/checkout` and similar) |
-| `--kind <kind>` | `image`, `terraform-module`, `workflow`, `action` or `npm`. Repeatable. |
+| `--kind <kind>` | `image`, `terraform-module`, `workflow`, `action`, `npm`, `helm-chart`, `go` or `python`. Repeatable. |
 | `--fail` | Exit with code 1 when drift is found, so you can run it in CI |
 | `--json` | Full output for scripting |
 
@@ -110,6 +110,8 @@ Writes `ripplemap.html`: one self-contained page with an interactive graph, the 
 | `compose.yml`, `docker-compose*.yml` | service `image`s | |
 | Kubernetes manifests (`*.yaml` with `apiVersion` and `kind`) | `containers`, `initContainers` and `ephemeralContainers` images in any workload, including CRDs, across multi-document files | |
 | Helm `Chart.yaml`, `values*.yaml` | chart `dependencies` (not `file://`), images in values as `image: repo:tag` or `{ registry, repository, tag }` | the chart, by `name` |
+| `go.mod` | direct `require`s (`// indirect` ones are found by following the chain) | the `module` path |
+| `pyproject.toml`, `requirements*.txt` | PEP 621 `dependencies`, optional dependencies and `[dependency-groups]`, Poetry dependency tables, requirement lines and `git+https://` URLs | the `[project]` or Poetry `name` |
 
 ### How references are linked to repos
 

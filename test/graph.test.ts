@@ -91,3 +91,27 @@ test('a file that cannot be read becomes a warning instead of stopping the scan'
   assert.match(result.graph.warnings![0]!.message, /could not read: EACCES/);
   assert.equal(result.graph.usages.length, 1);
 });
+
+test('new parsers link across repos: Go modules, Python packages, Helm charts, Kubernetes and Helm images', () => {
+  const platform = fileURLToPath(new URL('./fixtures/platform', import.meta.url));
+  const { graph: g, warnings: w } = scan(platform, { owner: 'acme' });
+  assert.deepEqual(w, []);
+  assert.deepEqual(
+    g.links.map((l) => `${l.from} -> ${l.to} (${l.kind}, ${l.confidence})`).sort(),
+    [
+      'acme/billing -> acme/go-utils (go, exact)',
+      'acme/billing -> acme/migrator (image, convention)',
+      'acme/reports -> acme/helm-charts (helm-chart, declared)',
+      'acme/reports -> acme/migrator (image, convention)',
+      'acme/reports -> acme/py-common (python, declared)',
+    ],
+  );
+  assert.deepEqual(
+    impact(g, 'acme/migrator').map((e) => e.repo),
+    ['acme/billing', 'acme/reports'],
+  );
+  assert.deepEqual(
+    drift(g, { internalOnly: true }).map((e) => `${e.name}: ${e.versions.map((v) => v.version).join(' / ')}`),
+    ['ghcr.io/acme/migrator: 3.1 / 3'],
+  );
+});
