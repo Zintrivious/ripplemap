@@ -5,7 +5,12 @@ import { parsers as defaultParsers } from './parsers/index.ts';
 import { parseRepoUrl } from './refs.ts';
 import type { Graph, Parser, RepoInfo, RepoProduction, RepoUsage, ScanWarning } from './types.ts';
 
-const SKIP_DIRS = new Set(['node_modules', '.terraform', 'vendor', '.venv', 'venv', 'bower_components', '__pycache__']);
+const SKIP_DIRS = new Set([
+  // Installed dependencies: other people's files, not this repo's.
+  'node_modules', '.terraform', 'vendor', '.venv', 'venv', 'bower_components', '__pycache__',
+  // Test data: deliberately fake (sometimes deliberately broken) manifests.
+  'fixture', 'fixtures', '__fixtures__', 'testdata', '__snapshots__',
+]);
 export const MAX_FILE_BYTES = 1024 * 1024;
 
 export interface ScanOptions {

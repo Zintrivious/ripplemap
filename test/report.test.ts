@@ -24,7 +24,7 @@ test('report embeds the graph, drift and repo owner', () => {
   assert.equal(data.repos.length, 7);
   assert.equal(data.links.length, graph.links.length);
   assert.ok(data.links.some((l) => l.from === 'acme/frontend' && l.to === 'acme/api' && l.file === 'docker-compose.yml'));
-  assert.deepEqual(data.drift[0]?.versions.map((v) => v.version), ['^2.1.0', '^1.9.0']);
+  assert.deepEqual(data.drift[0]?.versions.map((v) => v.version), ['2.x', '1.x']);
 });
 
 test('report is self-contained', () => {

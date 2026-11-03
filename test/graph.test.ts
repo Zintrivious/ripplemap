@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { buildLinks, drift, findRepo, imageRelease, impact, isUnpinned, unpinned } from '../src/graph.ts';
+import { buildLinks, drift, findRepo, imageRelease, impact, isUnpinned, npmRelease, unpinned } from '../src/graph.ts';
 import { scan, scanRepos } from '../src/scan.ts';
 
 const fixture = fileURLToPath(new URL('./fixtures/acme', import.meta.url));
@@ -47,7 +47,7 @@ test('drift reports shared artifacts used at several versions', () => {
   assert.deepEqual(
     entries.map((e) => `${e.name}: ${e.versions.map((v) => v.version).join(' / ')}`),
     [
-      '@acme/utils: ^2.1.0 / ^1.9.0',
+      '@acme/utils: 2.x / 1.x',
       'acme/ci/.github/workflows/build.yml: v2 / v1',
       'ghcr.io/acme/base: 1.4 / 1.2',
       'github.com/acme/infra-modules//vpc: v1.3.0 / v1.1.0',
@@ -141,4 +141,14 @@ test('drift treats per-architecture image tags as one release', () => {
   assert.equal(imageRelease('3.24-amd64'), '3.24');
   assert.equal(imageRelease('amd64'), 'amd64');
   assert.equal(imageRelease('debiantrixie'), 'debiantrixie');
+});
+
+test('drift treats npm ranges that install the same releases as one version', () => {
+  assert.equal(npmRelease('^9.6.0'), '9.x');
+  assert.equal(npmRelease('^9.6.1'), '9.x');
+  assert.equal(npmRelease('~1.4.2'), '1.4.x');
+  assert.equal(npmRelease('^0.5.1'), '0.5.x');
+  assert.equal(npmRelease('9.6.0'), '9.6.0');
+  assert.equal(npmRelease('>=2 <3'), '>=2 <3');
+  assert.equal(npmRelease('workspace:*'), 'workspace:*');
 });

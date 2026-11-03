@@ -136,6 +136,19 @@ const ARCH_SUFFIX = new RegExp(`[-_]${ARCH}$`, 'i');
 /** Per-architecture tags of one release (3.24, arm64v8-3.24, 3.24-amd64) count as the same version. */
 export const imageRelease = (tag: string) => tag.replace(ARCH_PREFIX, '').replace(ARCH_SUFFIX, '') || tag;
 
+/**
+ * npm ranges that install the same releases count as one version: ^9.6.0 and ^9.6.1 are both "9.x",
+ * ~1.4.2 is "1.4.x", and ^0.5.1 is "0.5.x" (caret ranges below 1.0 are minor-level). Exact versions stay as written.
+ */
+export function npmRelease(spec: string): string {
+  const m = /^([\^~])\s*v?(\d+)(?:\.(\d+|x|\*))?(?:\.(?:\d+|x|\*))?(?:[-+][\w.-]*)?$/.exec(spec.trim());
+  if (!m) return spec;
+  const [, op, major, minor] = m;
+  const minorNumber = minor && /^\d+$/.test(minor) ? minor : undefined;
+  if (op === '^') return major === '0' && minorNumber ? `0.${minorNumber}.x` : `${major}.x`;
+  return minorNumber ? `${major}.${minorNumber}.x` : `${major}.x`;
+}
+
 /** Newest first for version-like strings (1.4, v2, ^2.1.0); anything else (latest, main, SHAs) after them. */
 function compareVersionsDesc(a: string, b: string): number {
   const numeric = (v: string) => /^[\^~>=v\s]*\d/.test(v);
@@ -168,7 +181,7 @@ export function drift(graph: Graph, options: DriftOptions = {}): DriftEntry[] {
     // A repo pinning an old release of itself (often in examples/) is not drift between repos.
     if (producers.get(k)?.has(usage.repo)) continue;
     const versions = groups.get(k) ?? new Map<string, RepoUsage[]>();
-    const version = usage.kind === 'image' ? imageRelease(usage.version) : usage.version;
+    const version = usage.kind === 'image' ? imageRelease(usage.version) : usage.kind === 'npm' ? npmRelease(usage.version) : usage.version;
     versions.set(version, [...(versions.get(version) ?? []), usage]);
     groups.set(k, versions);
   }
