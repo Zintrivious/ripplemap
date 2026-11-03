@@ -63,7 +63,7 @@ ${asset('report.css')}
 <main>
   <section id="tab-impact" class="tab impact">
     <div class="graph-wrap">
-      <svg id="graph" role="img" aria-label="Dependency graph"><g id="viewport"><g id="edges"></g><g id="nodes"></g></g></svg>
+      <svg id="graph" role="img" aria-label="Dependency graph"><g id="viewport"><g id="edges"></g><g id="nodes"></g><g id="labels"></g></g></svg>
       <div class="graph-tools">
         <div class="kinds" id="kinds"></div>
         <button id="fit" title="Fit to screen">Fit</button>

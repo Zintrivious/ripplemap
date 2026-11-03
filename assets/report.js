@@ -172,13 +172,6 @@
   const view = { x: 0, y: 0, k: 1 };
 
   const radius = (node) => 4 + Math.sqrt(node.consumers) * 2.2;
-  const hubs = new Set(
-    [...nodes]
-      .filter((n) => n.consumers > 0)
-      .sort((a, b) => b.consumers - a.consumers)
-      .slice(0, 12)
-      .map((n) => n.id),
-  );
 
   function draw() {
     for (const pair of pairs) {
@@ -186,15 +179,15 @@
       $('edges').append(pair.el);
     }
     for (const node of nodes) {
-      const r = radius(node);
-      node.el = svg('g', { class: `node${hubs.has(node.id) ? ' hub' : ''}` });
-      node.el.append(svg('circle', { r }));
-      const label = svg('text', { x: r + 4, y: 4 });
-      label.textContent = short(node.id);
-      node.el.append(label);
+      node.el = svg('g', { class: 'node' });
+      node.el.append(svg('circle', { r: radius(node) }));
       node.el.addEventListener('pointerenter', () => showTooltip(node));
       node.el.addEventListener('pointerleave', () => (tooltip.hidden = true));
       $('nodes').append(node.el);
+      // Labels live in their own layer above every circle, so no node can cover text.
+      node.label = svg('text', { class: 'label' });
+      node.label.textContent = short(node.id);
+      $('labels').append(node.label);
     }
     position();
   }
@@ -209,40 +202,134 @@
       pair.el.setAttribute('x2', b.x);
       pair.el.setAttribute('y2', b.y);
     }
+    scheduleLabels();
   }
 
   function applyView() {
     viewport.setAttribute('transform', `translate(${view.x},${view.y}) scale(${view.k})`);
     // Labels and outlines keep the same on-screen size at any zoom.
     graph.style.setProperty('--k', String(view.k));
+    scheduleLabels();
   }
 
-  function fit() {
-    if (!nodes.length) return;
-    // Fit the bulk of the graph; a few small separate groups shouldn't shrink everything else.
-    const trim = nodes.length >= 40 ? 0.03 : 0;
+  /** Zooms so `list` fills the graph. `trim` ignores that share of outliers on each side. */
+  function fitNodes(list, { trim = 0, maxZoom = 2.5, pad = 70 } = {}) {
+    if (!list.length) return;
     const range = (values) => {
       const sorted = [...values].sort((a, b) => a - b);
       const at = (q) => sorted[Math.min(sorted.length - 1, Math.max(0, Math.round(q * (sorted.length - 1))))];
       return [at(trim), at(1 - trim)];
     };
-    const [minX, maxX] = range(nodes.map((n) => n.x));
-    const [minY, maxY] = range(nodes.map((n) => n.y));
+    const [minX, maxX] = range(list.map((n) => n.x));
+    const [minY, maxY] = range(list.map((n) => n.y));
     const w = graph.clientWidth;
     const hgt = graph.clientHeight;
-    const pad = 70;
-    view.k = Math.min((w - pad * 2) / Math.max(maxX - minX, 1), (hgt - pad * 2) / Math.max(maxY - minY, 1), 2.5);
+    view.k = Math.min((w - pad * 2) / Math.max(maxX - minX, 1), (hgt - pad * 2) / Math.max(maxY - minY, 1), maxZoom);
     view.x = w / 2 - ((minX + maxX) / 2) * view.k;
     view.y = hgt / 2 - ((minY + maxY) / 2) * view.k;
     applyView();
   }
 
-  function centerOn(id) {
-    const node = nodeById.get(id);
-    if (!node) return;
-    view.x = graph.clientWidth / 2 - node.x * view.k;
-    view.y = graph.clientHeight / 2 - node.y * view.k;
-    applyView();
+  // The bulk of the graph; a few small separate groups shouldn't shrink everything else.
+  const fit = () => fitNodes(nodes, { trim: nodes.length >= 40 ? 0.03 : 0 });
+
+  /** Zooms to the selected repo and everything lit up with it, leaving room for their labels. */
+  function focusSelection() {
+    const lit = nodes.filter((n) => n.el.classList.contains('lit'));
+    if (lit.length === 1) {
+      view.k = Math.max(view.k, 1.5);
+      view.x = graph.clientWidth / 2 - lit[0].x * view.k;
+      view.y = graph.clientHeight / 2 - lit[0].y * view.k;
+      applyView();
+    } else {
+      fitNodes(lit, { maxZoom: 4, pad: 110 });
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Labels: show as many as fit without overlapping each other or any node, most important first.
+
+  const measure = document.createElement('canvas').getContext('2d');
+  const labelFont = getComputedStyle(document.body).fontFamily;
+  const LABEL = { normal: { size: 11, weight: 400, h: 13 }, strong: { size: 12.5, weight: 650, h: 15 } };
+
+  function textWidth(node, style) {
+    const key = style === LABEL.strong ? 'wStrong' : 'w';
+    if (node[key] === undefined) {
+      measure.font = `${style.weight} ${style.size}px ${labelFont}`;
+      // Canvas measures a little narrower than SVG renders; pad so labels never touch a dot.
+      node[key] = measure.measureText(short(node.id)).width * 1.06 + 2;
+    }
+    return node[key];
+  }
+
+  let labelFrame = 0;
+  function scheduleLabels() {
+    if (!labelFrame) labelFrame = requestAnimationFrame(placeLabels);
+  }
+
+  function placeLabels() {
+    labelFrame = 0;
+    const width = graph.clientWidth;
+    const height = graph.clientHeight;
+    const onScreen = (n) => ({ x: n.x * view.k + view.x, y: n.y * view.k + view.y, r: radius(n) * view.k });
+    const has = (n, cls) => n.el.classList.contains(cls);
+
+    let wanted;
+    let obstacles;
+    if (selected) {
+      const rank = (n) => (n.id === selected ? 0 : has(n, 'direct') ? 1 : has(n, 'dependency') ? 2 : 3);
+      wanted = nodes.filter((n) => has(n, 'lit')).sort((a, b) => rank(a) - rank(b) || b.consumers - a.consumers);
+      obstacles = wanted; // faded nodes may sit under a label
+    } else {
+      wanted = nodes.filter((n) => n.consumers > 0).sort((a, b) => b.consumers - a.consumers).slice(0, 40);
+      // Only the hubs block labels; small leaves can sit under the text, which has an outline.
+      obstacles = wanted;
+    }
+    const mustShow = selected ? nodeById.get(selected) : wanted[0];
+    const circles = obstacles.map((n) => ({ node: n, ...onScreen(n) }));
+    // The legend and the Fit button float over the graph, so labels avoid them too.
+    const box = graph.getBoundingClientRect();
+    const placed = [...document.querySelectorAll('.legend, #fit')].map((el) => {
+      const r = el.getBoundingClientRect();
+      return { x: r.left - box.left - 4, y: r.top - box.top - 4, w: r.width + 8, h: r.height + 8 };
+    });
+
+    const hitsLabel = (a) => placed.some((b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h);
+    const hitsNode = (rect) =>
+      circles.some((c) => {
+        const cx = Math.max(rect.x, Math.min(c.x, rect.x + rect.w));
+        const cy = Math.max(rect.y, Math.min(c.y, rect.y + rect.h));
+        return (c.x - cx) ** 2 + (c.y - cy) ** 2 < (c.r + 1.5) ** 2;
+      });
+    const inView = (rect) => rect.x >= 4 && rect.y >= 4 && rect.x + rect.w <= width - 4 && rect.y + rect.h <= height - 4;
+
+    const shown = new Set();
+    for (const node of wanted) {
+      const c = onScreen(node);
+      const style = node.id === selected ? LABEL.strong : LABEL.normal;
+      const w = textWidth(node, style);
+      const h = style.h;
+      const gap = 3;
+      const candidates = [
+        { x: c.x + c.r + gap, y: c.y - h / 2 },
+        { x: c.x - c.r - gap - w, y: c.y - h / 2 },
+        { x: c.x - w / 2, y: c.y - c.r - gap - h },
+        { x: c.x - w / 2, y: c.y + c.r + gap },
+      ].map((p) => ({ ...p, w, h }));
+      let spot = candidates.find((r) => inView(r) && !hitsLabel(r) && !hitsNode(r));
+      // The selected repo (or the biggest hub) is always named, even if it has to overlap something.
+      if (!spot && node === mustShow) spot = candidates.find((r) => !hitsLabel(r)) || candidates[0];
+      if (!spot) continue;
+      placed.push(spot);
+      shown.add(node);
+      node.label.setAttribute('x', (spot.x - view.x) / view.k);
+      node.label.setAttribute('y', (spot.y + h * 0.78 - view.y) / view.k);
+    }
+    for (const node of nodes) {
+      node.label.classList.toggle('placed', shown.has(node));
+      node.label.classList.toggle('strong', node.id === selected);
+    }
   }
 
   function showTooltip(node) {
@@ -321,6 +408,7 @@
       pair.el.classList.remove('hot', 'indirect', 'dep');
       pair.el.style.display = [...pair.kinds].some((k) => enabledKinds.has(k)) ? '' : 'none';
     }
+    scheduleLabels();
     if (!selected) return;
 
     const affected = impactOf(selected);
@@ -363,7 +451,7 @@
   function repoButton(id, dotClass, ...extra) {
     return h(
       'button',
-      { class: 'repo-link', onclick: () => select(id, { center: true }) },
+      { class: 'repo-link', onclick: () => select(id, { focus: true }) },
       dotClass ? h('i', { class: `dot ${dotClass}` }) : null,
       short(id),
       ...extra,
@@ -445,7 +533,7 @@
     renderDetails();
     $('search').value = id ? short(id) : '';
     history.replaceState(null, '', id ? `#repo=${encodeURIComponent(id)}` : location.pathname + location.search);
-    if (id && options.center) centerOn(id);
+    if (id && options.focus) focusSelection();
   }
 
   function setUpSearch() {
@@ -462,7 +550,7 @@
     };
     const go = () => {
       const repo = find(input.value);
-      if (repo) select(repo.id, { center: true });
+      if (repo) select(repo.id, { focus: true });
     };
     input.addEventListener('change', go);
     input.addEventListener('keydown', (e) => {
@@ -498,7 +586,7 @@
   function repoChips(repos) {
     const COLLAPSED = 6;
     const box = h('div', { class: 'repos' });
-    const chip = (repo) => h('button', { class: 'repo-chip', onclick: () => select(repo, { center: true }) }, short(repo));
+    const chip = (repo) => h('button', { class: 'repo-chip', onclick: () => select(repo, { focus: true }) }, short(repo));
     const show = (all) => {
       const visible = all || repos.length <= COLLAPSED + 2 ? repos : repos.slice(0, COLLAPSED);
       box.replaceChildren(...visible.map(chip));
@@ -559,7 +647,7 @@
     $('tab-drift').hidden = name !== 'drift';
     if (name === 'impact' && !fitted) {
       fitted = true;
-      requestAnimationFrame(fit);
+      requestAnimationFrame(() => (selected ? focusSelection() : fit()));
     }
   }
 
@@ -590,7 +678,7 @@
   /** Links like report.html#repo=acme/api open with that repo selected. */
   function selectFromHash() {
     const id = decodeURIComponent((location.hash.match(/^#repo=(.+)$/) || [])[1] || '');
-    select(data.repos.some((r) => r.id === id) ? id : null);
+    select(data.repos.some((r) => r.id === id) ? id : null, { focus: true });
   }
 
   showTab('impact');
