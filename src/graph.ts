@@ -189,6 +189,52 @@ export function drift(graph: Graph, options: DriftOptions = {}): DriftEntry[] {
   );
 }
 
+/** Versions that follow whatever is published next instead of naming a release. */
+const FLOATING = new Set(['latest', 'unpinned', 'default branch', '*', 'main', 'master', 'develop', 'dev', 'trunk', 'head', 'stable', 'edge', 'nightly']);
+
+export const isUnpinned = (version: string) => FLOATING.has(version.toLowerCase());
+
+export interface UnpinnedEntry {
+  kind: ArtifactKind;
+  name: string;
+  /** Repos that produce this artifact. Empty for third-party artifacts. */
+  producers: string[];
+  usages: RepoUsage[];
+}
+
+/**
+ * References that pin nothing: `latest` images, `@main` workflows, modules without a ref or version.
+ * Every new release of the producing repo reaches these consumers without a pull request.
+ * By default only things built in the scanned repos; `all` adds third-party ones too.
+ */
+export function unpinned(graph: Graph, options: { all?: boolean } = {}): UnpinnedEntry[] {
+  const producers = new Map<string, Set<string>>();
+  for (const link of graph.links) {
+    const k = key(link.kind, link.name);
+    producers.set(k, (producers.get(k) ?? new Set()).add(link.to));
+  }
+
+  const groups = new Map<string, RepoUsage[]>();
+  for (const usage of graph.usages) {
+    if (!isUnpinned(usage.version)) continue;
+    const k = key(usage.kind, usage.name);
+    const owners = producers.get(k);
+    if (owners?.has(usage.repo)) continue; // a repo using its own latest build
+    if (!owners && !options.all) continue;
+    groups.set(k, [...(groups.get(k) ?? []), usage]);
+  }
+
+  return [...groups]
+    .map(([k, usages]) => {
+      const [kind, name] = k.split('\0') as [ArtifactKind, string];
+      return { kind, name, producers: [...(producers.get(k) ?? [])].sort(), usages: usages.sort((a, b) => a.repo.localeCompare(b.repo)) };
+    })
+    .sort(
+      (a, b) =>
+        Number(b.producers.length > 0) - Number(a.producers.length > 0) || b.usages.length - a.usages.length || a.name.localeCompare(b.name),
+    );
+}
+
 /** Repos with the most distinct direct consumers. */
 export function mostDependedOn(graph: Graph, limit = 5): { repo: string; consumers: number }[] {
   const consumers = new Map<string, Set<string>>();

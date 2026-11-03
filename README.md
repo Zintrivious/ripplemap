@@ -90,6 +90,25 @@ cloudposse/utils/aws  module · built in terraform-aws-utils · 2 versions acros
 | `--fail` | Exit with code 1 when drift is found, so you can run it in CI |
 | `--json` | Full output for scripting |
 
+### `ripplemap unpinned`
+
+References that pin nothing: `FROM ghcr.io/acme/base` (latest), `uses: acme/ci/.github/workflows/build.yml@main`, Terraform modules without a `ref` or `version`. Every release of the repo that builds them reaches these consumers without anyone opening a pull request.
+
+```
+$ ripplemap unpinned
+
+cloudposse/utils/aws  module · built in terraform-aws-utils
+  unpinned  terraform-aws-github-action-token-rotator  main.tf:11
+
+1 unpinned reference to things built in your repos. Each one picks up new releases without a pull request.
+```
+
+| Option | |
+|---|---|
+| `--all` | Include third-party references too (e.g. `actions/checkout@main`) |
+| `--fail` | Exit with code 1 when any are found |
+| `--json` | Full output for scripting |
+
 ### `ripplemap report`
 
 Writes `ripplemap.html`: one self-contained page with an interactive graph, the impact of any repo, and the drift table. It has no external scripts or fonts, so it works offline and can be attached to a ticket or posted in Slack. File references link straight to the line on GitHub. Add `#repo=<owner/name>` to the URL to open the page with that repo selected.

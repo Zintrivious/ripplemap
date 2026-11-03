@@ -1,4 +1,4 @@
-import type { DriftEntry, ImpactEntry } from './graph.ts';
+import type { DriftEntry, ImpactEntry, UnpinnedEntry } from './graph.ts';
 import type { ArtifactKind, Graph, Link } from './types.ts';
 
 const useColor = process.stdout.isTTY && !process.env.NO_COLOR;
@@ -92,6 +92,28 @@ export function formatDrift(graph: Graph, entries: DriftEntry[]): string {
     '',
     `${bold(plural(entries.length, 'artifact'))} with drift (${internal} built in your repos). Use --json for full repo lists.`,
   ].join('\n');
+}
+
+export function formatUnpinned(graph: Graph, entries: UnpinnedEntry[], all: boolean): string {
+  if (!entries.length) {
+    return all ? 'No unpinned references found.' : 'Every reference to something built in your repos names a version.';
+  }
+  const name = repoNamer(graph);
+
+  const blocks = entries.map((entry) => {
+    const owner = entry.producers.length ? `built in ${entry.producers.map(name).join(', ')}` : 'third-party';
+    const header = `${bold(entry.name)}  ${dim(`${KIND_LABEL[entry.kind]} · ${owner}`)}`;
+    const width = Math.max(...entry.usages.map((u) => u.version.length));
+    const repoWidth = Math.max(...entry.usages.map((u) => name(u.repo).length));
+    const rows = entry.usages.map(
+      (u) => `  ${yellow(u.version.padEnd(width))}  ${cyan(name(u.repo).padEnd(repoWidth))}  ${dim(`${u.location.file}:${u.location.line}`)}`,
+    );
+    return [header, ...rows].join('\n');
+  });
+
+  const count = entries.reduce((n, e) => n + e.usages.length, 0);
+  const scope = all ? '' : ' to things built in your repos';
+  return `${blocks.join('\n\n')}\n\n${bold(plural(count, 'unpinned reference'))}${scope}. Each one picks up new releases without a pull request.`;
 }
 
 export function formatScanSummary(

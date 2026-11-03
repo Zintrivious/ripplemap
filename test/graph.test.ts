@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { drift, findRepo, impact } from '../src/graph.ts';
+import { drift, findRepo, impact, isUnpinned, unpinned } from '../src/graph.ts';
 import { scan, scanRepos } from '../src/scan.ts';
 
 const fixture = fileURLToPath(new URL('./fixtures/acme', import.meta.url));
@@ -114,4 +114,17 @@ test('new parsers link across repos: Go modules, Python packages, Helm charts, K
     drift(g, { internalOnly: true }).map((e) => `${e.name}: ${e.versions.map((v) => v.version).join(' / ')}`),
     ['ghcr.io/acme/migrator: 3.1 / 3'],
   );
+});
+
+test('unpinned lists floating references to things built in the scanned repos', () => {
+  const entries = unpinned(graph);
+  assert.deepEqual(
+    entries.map((e) => `${e.name} ${e.usages.map((u) => `${u.repo}@${u.version}`).join(',')}`),
+    ['ghcr.io/acme/api acme/frontend@latest'],
+  );
+  // With --all, third-party ones too (postgres:16 is pinned, so it stays out).
+  const all = unpinned(graph, { all: true }).map((e) => e.name);
+  assert.ok(all.includes('ghcr.io/acme/api'));
+  assert.ok(!all.includes('postgres'));
+  assert.ok(isUnpinned('main') && isUnpinned('default branch') && !isUnpinned('v1') && !isUnpinned('^2.1.0'));
 });

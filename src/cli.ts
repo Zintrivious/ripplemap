@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
-import { dim, formatDrift, formatImpact, formatScanSummary, plural, yellow } from './format.ts';
+import { dim, formatDrift, formatImpact, formatScanSummary, formatUnpinned, plural, yellow } from './format.ts';
 import { scanGitHub } from './github.ts';
-import { drift, findRepo, impact, mostDependedOn } from './graph.ts';
+import { drift, findRepo, impact, mostDependedOn, unpinned } from './graph.ts';
 import { renderReport } from './report.ts';
 import { scan, type ScanResult } from './scan.ts';
 import type { ArtifactKind, Graph } from './types.ts';
@@ -32,6 +32,12 @@ Usage:
       --internal  only things built in your scanned repos
       --kind      one of: ${KINDS.join(', ')} (repeatable)
       --fail      exit with code 1 if any drift is found (for CI)
+
+  ripplemap unpinned [--graph ripplemap.json] [--all] [--json] [--fail]
+      References that pin nothing (latest, @main, no ref or version), so every new release
+      reaches them without a pull request.
+      --all   include third-party references too, not just things built in your repos
+      --fail  exit with code 1 if any are found (for CI)
 
   ripplemap report [--graph ripplemap.json] [--out ripplemap.html]
       A self-contained HTML page: an interactive impact graph and the drift table.
@@ -173,6 +179,24 @@ function runDrift(args: string[]): number {
   return values.fail && entries.length ? 1 : incomplete;
 }
 
+function runUnpinned(args: string[]): number {
+  const { values } = parseArgs({
+    args,
+    options: {
+      graph: { type: 'string', short: 'g', default: DEFAULT_GRAPH },
+      all: { type: 'boolean', default: false },
+      json: { type: 'boolean', default: false },
+      fail: { type: 'boolean', default: false },
+      ...strictOption,
+    },
+  });
+  const graph = loadGraph(values.graph);
+  const entries = unpinned(graph, { all: values.all });
+  console.log(values.json ? JSON.stringify(entries, null, 2) : formatUnpinned(graph, entries, values.all));
+  const incomplete = checkComplete(graph, values.strict);
+  return values.fail && entries.length ? 1 : incomplete;
+}
+
 function runReport(args: string[]): number {
   const { values } = parseArgs({
     args,
@@ -195,6 +219,8 @@ async function main(argv: string[]): Promise<number> {
       return runScan(rest);
     case 'report':
       return runReport(rest);
+    case 'unpinned':
+      return runUnpinned(rest);
     case 'impact':
       return runImpact(rest);
     case 'drift':
