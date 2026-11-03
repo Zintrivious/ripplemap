@@ -22,11 +22,14 @@ src/
   github.ts           scan --org: lists repos and fetches files through the GitHub API, with a cache
   parsers/            one file per file format
   refs.ts             normalizing image names, module sources, `uses:` values
-  graph.ts            linking usages to producing repos, impact, drift
+  graph.ts            linking usages to producing repos, impact, drift, unpinned
+  changes.ts          what a set of changed files affects (ripplemap affected, the Action)
+  markdown.ts         the pull request comment
   format.ts           terminal output
   report.ts           builds the HTML report from the graph
 assets/
   report.css, report.js   the report page's styles and script (plain files, no build step)
+action.yml            the GitHub Action: runs src/ directly on Node 24, no build step
 test/
   fixtures/acme/      a small fake org used by the graph tests
 ```

@@ -44,6 +44,73 @@ npx ripplemap scan ~/code/my-org
 
 Or install it globally with `npm install -g ripplemap`.
 
+## On every pull request
+
+The GitHub Action comments on a pull request with the repos the change may affect. Add this to the repos other repos depend on, such as shared modules, base images, reusable workflows and libraries:
+
+```yaml
+# .github/workflows/ripplemap.yml
+name: ripplemap
+on: pull_request_target
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  impact:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: Zintrivious/ripplemap@v0
+        # with:
+        #   token: ${{ secrets.RIPPLEMAP_TOKEN }}   # for private repos, see below
+```
+
+Here's what it posted when told that a pull request changes Cloud Posse's `terraform-aws-security-group` (shortened):
+
+> ### ripplemap: this pull request may affect 13 repos
+>
+> 12 directly and 1 through other repos.
+>
+> #### `cloudposse/security-group/aws` · Terraform module
+>
+> Changed here: `main.tf`, `variables.tf`
+>
+> | Repo | Uses | Where |
+> |---|---|---|
+> | terraform-aws-ec2-bastion-server | `0.3.3` | main.tf:36 |
+> | terraform-aws-ec2-client-vpn | `2.2.0` | main.tf:195 |
+> | terraform-aws-ec2-instance | `0.3.3` | security_group.tf:1 |
+> | … | | |
+
+How it decides what a change touches:
+
+- **Only the part that changed counts.** An edit to `.github/workflows/build.yml` affects callers of that workflow, not every user of the repo. An edit under `vpc/` affects users of the `vpc` module, and an edit in a package's folder affects that package's users. Container images count any edit, since their build context isn't known.
+- **Docs, tests and examples are ignored**, so a README edit doesn't alarm anyone.
+- **Repos that pin nothing are called out.** A repo on `@main` or `latest` gets the change the moment it merges. The rest only feel it when they upgrade.
+- **The chain follows one kind of dependency.** A base image change reaches images built on images built on it, but a Terraform module change doesn't flag the users of a repo's container image.
+- **It's a list to check, not a list of breakages.** ripplemap reads references; it doesn't build or test anything.
+
+It keeps one comment up to date as the pull request changes, writes the same report to the job summary, and doesn't comment at all when nothing is affected.
+
+**Permissions and safety.** The Action reads the pull request's file list through the API and never checks out or runs the pull request's code. That's why `pull_request_target` is safe here, and it's what lets it comment on pull requests from forks. Don't add a checkout of the pull request's code to the same job. The default job token can read public repos. To scan private repos, pass a token with read access to every repo in the org, either a fine-grained personal access token with Contents: read or a GitHub App token.
+
+| Input | Default | |
+|---|---|---|
+| `token` | job token | Reads the org's repos. Needs read access to all of them for private orgs. |
+| `org` | the repo's owner | Org or user to scan |
+| `match` | | Only repos whose names match these globs, e.g. `terraform-* platform-*` |
+| `exclude` | | Folders to skip in every repo, e.g. `examples test` |
+| `comment` | `affected` | `affected`: comment when something is affected; `always`: also when nothing is; `never`: job summary only |
+| `strict` | `false` | Fail the step when the scan was incomplete |
+| `comment-token` | job token | Reads the pull request's files and posts the comment |
+
+Outputs: `affected` (repos the change may affect), `direct`, and `complete` (`"true"` when every file could be read). The Action sets up Node 24 for the job it runs in, so give it a job of its own as above.
+
+To check a change before opening a pull request, run the same analysis locally:
+
+```bash
+git diff --name-only main | npx ripplemap affected <repo> --files -
+```
+
 ## Commands
 
 ### `ripplemap scan --org <name>` / `ripplemap scan <dir>`
@@ -65,6 +132,10 @@ Scans a GitHub org or user through the API, or a folder of cloned repos (or a si
 ### `ripplemap impact <repo>`
 
 Every repo that depends on `<repo>`, directly or through other repos, with the file and line of each reference. `--json` for scripting.
+
+### `ripplemap affected <repo> --files <list>`
+
+What a specific change to `<repo>` may affect, as described in [On every pull request](#on-every-pull-request). `--files` takes a file with one path per line, or `-` for stdin. Add `--markdown` for the pull request comment or `--json` for scripting.
 
 ### `ripplemap drift`
 
@@ -170,8 +241,8 @@ Spot-checked links point at the exact dependency line in the real files.
 
 ## Roadmap
 
-- A GitHub Action that comments "this PR affects N repos" on pull requests
 - `--org` for GitHub Enterprise Server, then GitLab and Bitbucket
+- The Action on GitLab merge requests
 
 Bug reports with real-world files ripplemap misreads are the most useful contribution there is. Check the [issues](https://github.com/Zintrivious/ripplemap/issues).
 
