@@ -1,10 +1,40 @@
 # ripplemap
 
-**See which repos are affected when you change one.**
+**See which repos break when you change one.**
 
-You're about to bump the shared base image, change a Terraform module, or edit the reusable CI workflow. Which repos use it? Which are still on the old version? Usually the answer lives in someone's head or a stale wiki page.
+[**Live demo**](https://zintrivious.github.io/ripplemap/demo/linuxserver/#repo=linuxserver%2Fdocker-baseimage-alpine) · [Website](https://zintrivious.github.io/ripplemap/) · [npm](https://www.npmjs.com/package/ripplemap)
 
-ripplemap reads the files your repos already have (Dockerfiles, Terraform, GitHub Actions workflows, `package.json`, Compose files) and builds the cross-repo dependency graph. You don't write any catalog YAML, and nothing leaves your machine.
+You're about to change a shared base image, Terraform module, CI workflow or library. Which repos use it? Which are still on an old version? Usually the answer lives in someone's head or a stale wiki page.
+
+ripplemap reads the files your repos already have and answers in seconds: Dockerfiles, Terraform, GitHub Actions, Kubernetes, Helm, Compose, npm, Go and Python. There's no catalog to write, no server to run, and nothing leaves your machine.
+
+[![The ripplemap report: clicking a repo highlights every repo a change to it would affect](docs/report.png)](https://zintrivious.github.io/ripplemap/demo/cloudposse/#repo=cloudposse%2Fterraform-aws-security-group)
+
+**What you can do with it**
+
+- **Before a breaking change:** see exactly which repos to update and who to tell.
+- **On every pull request:** a [GitHub Action](#on-every-pull-request) comments with the repos the change may affect.
+- **Version drift:** find repos still on an old base image, module or library.
+- **Unpinned references:** find repos on `latest` or `@main` that change underneath you.
+
+## Quick start
+
+Two commands. Needs Node.js 22 or newer, and nothing to clone:
+
+```bash
+npx ripplemap scan --org your-org
+npx ripplemap report --open
+```
+
+If you're logged in with the [GitHub CLI](https://cli.github.com) (`gh auth login`), that's all the setup there is, and private repos work too. Otherwise set `GITHUB_TOKEN` to any token. Without one, GitHub only allows enough requests for about 50 repos an hour.
+
+Then, in the terminal:
+
+```bash
+npx ripplemap impact <repo>    # everything a change to <repo> would affect
+npx ripplemap drift            # shared things used at different versions
+npx ripplemap unpinned         # references that pin no version
+```
 
 ```
 $ ripplemap impact base-images
@@ -19,28 +49,7 @@ base-images
 
 `frontend` never mentions `base-images`. It runs the `api` image, which is built on top of it. ripplemap follows that chain.
 
-`ripplemap report` turns the same graph into a single HTML page you can open offline or share. Click a repo to see everything a change to it would affect:
-
-![ripplemap report on Cloud Posse's 163 Terraform repos: selecting terraform-aws-security-group highlights the 13 repos it affects](docs/report.png)
-
-## Quick start
-
-Requires Node.js 22 or newer. Point it at your GitHub org; you don't need to clone anything:
-
-```bash
-npx ripplemap scan --org my-org
-npx ripplemap report        # writes ripplemap.html
-npx ripplemap impact <repo>
-npx ripplemap drift
-```
-
-It uses `GITHUB_TOKEN`, `GH_TOKEN`, or your `gh auth login` session, so private repos work too. Only the files ripplemap reads are downloaded, and they're cached by content. Scanning Cloud Posse's 163 Terraform repos took 25 seconds the first time. Repeat scans take about 5 seconds and 3 API requests, because only repos with new pushes are fetched again.
-
-Already have the repos cloned? Scan the folder instead:
-
-```bash
-npx ripplemap scan ~/code/my-org
-```
+Scans are fast and cached. Cloud Posse's 163 Terraform repos took 25 seconds the first time; repeat scans take about 5 seconds, because only repos with new pushes are fetched again. Already have the repos cloned? Run `npx ripplemap scan ~/code/your-org` instead.
 
 Or install it globally with `npm install -g ripplemap`.
 
@@ -189,6 +198,7 @@ Writes `ripplemap.html`: one self-contained page with an interactive graph, the 
 |---|---|
 | `--graph <file>` | Graph to read (default `ripplemap.json`) |
 | `--out <file>` | Where to write the page (default `ripplemap.html`) |
+| `--open` | Open it in your browser |
 
 ## What it understands
 

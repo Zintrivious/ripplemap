@@ -465,7 +465,12 @@
       .slice(0, 15);
     box.append(
       h('h2', {}, 'Most depended-on'),
-      h('p', { class: 'sub' }, 'Click a repo in the graph or the list to see everything a change to it would affect.'),
+      h(
+        'p',
+        { class: 'sub' },
+        'Each dot is a repo. Each line means one repo uses something another builds: a base image, a Terraform module, a shared workflow, a package. ' +
+          'Click a repo to see everything a change to it would affect.',
+      ),
       ranked.length
         ? h('ul', { class: 'list top-list' }, ranked.map((r) => h('li', {}, repoButton(r.id, null, h('span', { class: 'uses-count' }, `used by ${r.count}`)))))
         : h('p', { class: 'hint' }, 'No cross-repo links found in this scan.'),

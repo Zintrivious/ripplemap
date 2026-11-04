@@ -1,5 +1,7 @@
 #!/usr/bin/env node
+import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { changeImpact } from './changes.ts';
 import { dim, formatChangeImpact, formatDrift, formatImpact, formatScanSummary, formatUnpinned, plural, yellow } from './format.ts';
@@ -46,7 +48,7 @@ Usage:
       --all   include third-party references too, not just things built in your repos
       --fail  exit with code 1 if any are found (for CI)
 
-  ripplemap report [--graph ripplemap.json] [--out ripplemap.html]
+  ripplemap report [--graph ripplemap.json] [--out ripplemap.html] [--open]
       A self-contained HTML page: an interactive impact graph and the drift table.
 
   ripplemap --version
@@ -233,18 +235,28 @@ function runUnpinned(args: string[]): number {
   return values.fail && entries.length ? 1 : incomplete;
 }
 
+function openInBrowser(file: string): void {
+  const [command, ...args] =
+    process.platform === 'darwin' ? ['open', file] : process.platform === 'win32' ? ['cmd', '/c', 'start', '', file] : ['xdg-open', file];
+  const child = spawn(command!, args, { detached: true, stdio: 'ignore' });
+  child.on('error', () => console.error(yellow(`Couldn't open a browser. Open ${file} yourself.`)));
+  child.unref();
+}
+
 function runReport(args: string[]): number {
   const { values } = parseArgs({
     args,
     options: {
       graph: { type: 'string', short: 'g', default: DEFAULT_GRAPH },
       out: { type: 'string', short: 'o', default: 'ripplemap.html' },
+      open: { type: 'boolean', default: false },
       ...strictOption,
     },
   });
   const graph = loadGraph(values.graph);
   writeFileSync(values.out, renderReport(graph));
-  console.log(`Wrote ${values.out} (${plural(graph.repos.length, 'repo')}, ${plural(graph.links.length, 'link')}). Open it in a browser.`);
+  console.log(`Wrote ${values.out} (${plural(graph.repos.length, 'repo')}, ${plural(graph.links.length, 'link')}).${values.open ? '' : ' Open it in a browser, or add --open.'}`);
+  if (values.open) openInBrowser(resolve(values.out));
   return checkComplete(graph, values.strict);
 }
 

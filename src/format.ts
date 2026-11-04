@@ -176,6 +176,6 @@ export function formatScanSummary(
     for (const t of top) lines.push(`  ${cyan(name(t.repo).padEnd(width))}  used by ${plural(t.consumers, 'repo')}`);
   }
   lines.push('', `Wrote ${outFile}`);
-  if (top[0]) lines.push('', 'Next:', `  ripplemap impact ${name(top[0].repo)}`, '  ripplemap drift');
+  if (top[0]) lines.push('', 'Next:', '  ripplemap report --open      see it all in your browser', `  ripplemap impact ${name(top[0].repo)}`, '  ripplemap drift');
   return lines.join('\n');
 }

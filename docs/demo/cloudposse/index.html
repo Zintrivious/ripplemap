@@ -1,0 +1,985 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ripplemap · github.com/cloudposse</title>
+<style>
+:root {
+  --bg: #f6f6f3;
+  --surface: #ffffff;
+  --surface-2: #f0f1f3;
+  --text: #1b1d22;
+  --muted: #6b7080;
+  --border: #e2e3e8;
+  --node: #a3a9b7;
+  --edge: #cfd2da;
+  --selected: #2f6fed;
+  --direct: #e4532c;
+  --indirect: #f0a234;
+  --dependency: #8457f0;
+  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1014;
+    --surface: #161920;
+    --surface-2: #1d2129;
+    --text: #e8eaef;
+    --muted: #8e94a4;
+    --border: #272b35;
+    --node: #5c6376;
+    --edge: #2f3440;
+    --selected: #5d8dff;
+    --direct: #ff6b45;
+    --indirect: #ffb648;
+    --dependency: #a68bfb;
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body { margin: 0; height: 100%; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.45 var(--font);
+  display: flex;
+  flex-direction: column;
+}
+
+button, input { font: inherit; color: inherit; }
+
+a { color: var(--selected); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* Header */
+
+.top {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 0 20px;
+  height: 56px;
+  flex: none;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 650; letter-spacing: -0.01em; white-space: nowrap; }
+.brand .home { display: flex; align-items: center; gap: 10px; color: inherit; }
+.brand .home:hover { text-decoration: none; color: var(--selected); }
+.brand .source { font-weight: 400; color: var(--muted); font-family: var(--mono); font-size: 13px; }
+
+.logo {
+  width: 18px; height: 18px; border-radius: 50%;
+  border: 2px solid var(--selected);
+  box-shadow: 0 0 0 3px var(--surface), 0 0 0 5px color-mix(in srgb, var(--selected) 35%, transparent);
+}
+
+.tabs { display: flex; gap: 4px; }
+.tabs button {
+  border: 0; background: none; padding: 6px 12px; border-radius: 8px; cursor: pointer; color: var(--muted);
+}
+.tabs button[aria-selected="true"] { background: var(--surface-2); color: var(--text); font-weight: 600; }
+.tabs .count { font-variant-numeric: tabular-nums; color: var(--muted); font-weight: 400; }
+
+.stats { margin-left: auto; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.stats b { color: var(--text); font-weight: 600; }
+
+.notice {
+  flex: none; padding: 8px 20px; font-size: 13px; border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--indirect) 16%, var(--surface)); color: var(--text);
+}
+.notice code { font-family: var(--mono); font-size: 12px; }
+
+main { flex: 1; min-height: 0; display: flex; }
+.tab { flex: 1; min-height: 0; }
+.tab[hidden] { display: none; }
+
+/* Impact: graph + panel */
+
+.impact { display: grid; grid-template-columns: minmax(0, 1fr) 380px; }
+
+.graph-wrap { position: relative; min-height: 0; overflow: hidden; }
+
+#graph { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+#graph.panning { cursor: grabbing; }
+
+.edge { stroke: var(--edge); stroke-width: calc(1px / var(--k, 1)); fill: none; transition: opacity 120ms; }
+.edge.hot { stroke: var(--direct); stroke-width: calc(1.6px / var(--k, 1)); }
+.edge.hot.indirect { stroke: var(--indirect); }
+.edge.dep { stroke: var(--dependency); stroke-width: calc(1.6px / var(--k, 1)); }
+
+.node { cursor: pointer; }
+.node circle { fill: var(--node); stroke: var(--surface); stroke-width: calc(1.5px / var(--k, 1)); transition: fill 120ms, opacity 120ms; }
+/* Placed by placeLabels(): only labels with room of their own are shown. */
+.label {
+  font-size: calc(11px / var(--k, 1)); fill: var(--text); paint-order: stroke; stroke: var(--bg);
+  stroke-width: calc(3px / var(--k, 1)); stroke-linejoin: round; pointer-events: none; display: none;
+}
+.label.placed { display: inline; }
+.label.strong { font-weight: 650; font-size: calc(12.5px / var(--k, 1)); }
+.node:hover circle { stroke: var(--text); }
+.node.selected circle { fill: var(--selected); }
+.node.direct circle { fill: var(--direct); }
+.node.indirect circle { fill: var(--indirect); }
+.node.dependency circle { fill: var(--dependency); }
+
+#graph.focus .node:not(.lit) circle { opacity: 0.18; }
+#graph.focus .edge:not(.hot):not(.dep) { opacity: 0.12; }
+
+.graph-tools { position: absolute; top: 12px; left: 12px; right: 12px; display: flex; gap: 8px; align-items: flex-start; pointer-events: none; }
+.graph-tools > * { pointer-events: auto; }
+.kinds { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; font-size: 12px; user-select: none;
+}
+.chip[aria-pressed="true"] { color: var(--text); border-color: color-mix(in srgb, var(--text) 30%, var(--border)); }
+.chip .n { font-variant-numeric: tabular-nums; color: var(--muted); }
+#fit { margin-left: auto; }
+#fit, .btn {
+  border: 1px solid var(--border); background: var(--surface); border-radius: 8px; padding: 4px 10px; cursor: pointer; font-size: 12px;
+}
+
+.legend {
+  position: absolute; left: 12px; bottom: 12px; display: flex; flex-wrap: wrap; gap: 4px 14px;
+  padding: 6px 10px; border-radius: 8px; background: color-mix(in srgb, var(--surface) 88%, transparent);
+  border: 1px solid var(--border); color: var(--muted); font-size: 12px;
+}
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.dot.selected { background: var(--selected); }
+.dot.direct { background: var(--direct); }
+.dot.indirect { background: var(--indirect); }
+.dot.dependency { background: var(--dependency); }
+
+.tooltip {
+  position: absolute; pointer-events: none; padding: 6px 9px; border-radius: 6px; font-size: 12px;
+  background: var(--text); color: var(--bg); white-space: nowrap; transform: translate(-50%, calc(-100% - 12px));
+}
+
+.panel {
+  border-left: 1px solid var(--border); background: var(--surface); overflow-y: auto; padding: 16px 18px 28px;
+}
+
+.search input {
+  width: 100%; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); outline: none;
+}
+.search input:focus { border-color: var(--selected); }
+
+#details h2 { font-size: 17px; margin: 18px 0 2px; letter-spacing: -0.01em; word-break: break-all; }
+#details h3 {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 20px 0 8px; font-weight: 600;
+}
+#details .sub { color: var(--muted); margin: 0; }
+.headline { margin: 12px 0 0; font-size: 15px; }
+.headline b { font-variant-numeric: tabular-nums; }
+
+.hint { color: var(--muted); margin-top: 16px; }
+
+.list { list-style: none; margin: 0; padding: 0; }
+.list li { padding: 7px 0; border-top: 1px solid var(--border); }
+.list li:first-child { border-top: 0; }
+.repo-link {
+  border: 0; background: none; padding: 0; cursor: pointer; font-weight: 600; text-align: left; word-break: break-all;
+  display: inline-flex; align-items: center; gap: 7px;
+}
+.repo-link:hover { color: var(--selected); }
+.repo-link .dot { flex: none; }
+.ref { display: block; font-family: var(--mono); font-size: 12px; color: var(--muted); margin-top: 2px; overflow-wrap: anywhere; }
+.ref a { white-space: nowrap; }
+.ref .kind { font-family: var(--font); text-transform: uppercase; font-size: 10px; letter-spacing: 0.05em; margin-right: 4px; }
+.ref a { color: inherit; text-decoration: underline; text-decoration-color: var(--border); }
+.ref a:hover { color: var(--selected); }
+.guess { color: var(--indirect); font-family: var(--font); }
+.via { color: var(--muted); font-size: 12px; font-weight: 400; }
+.uses-count { margin-left: auto; padding-left: 12px; color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 400; white-space: nowrap; }
+.top-list .repo-link { width: 100%; }
+
+/* Drift */
+
+.drift { overflow-y: auto; padding: 20px; }
+.drift-head { display: flex; align-items: center; gap: 16px; max-width: 1100px; margin: 0 auto 16px; color: var(--muted); }
+.drift-head p { margin: 0; }
+.toggle { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; cursor: pointer; }
+
+#drift-list { max-width: 1100px; margin: 0 auto; display: grid; gap: 12px; }
+.artifact { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+.artifact-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-bottom: 10px; }
+.artifact-head .name { font-family: var(--mono); font-weight: 600; word-break: break-all; }
+.artifact-head .meta { color: var(--muted); font-size: 12px; }
+.badge {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 999px;
+  background: var(--surface-2); color: var(--muted); font-weight: 600;
+}
+.badge.internal { background: color-mix(in srgb, var(--selected) 14%, transparent); color: var(--selected); }
+.versions { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; align-items: baseline; }
+.versions .v { font-family: var(--mono); font-size: 13px; }
+.versions .v.newest { color: var(--selected); font-weight: 600; }
+.repos { display: flex; flex-wrap: wrap; gap: 4px; }
+.repo-chip {
+  border: 1px solid var(--border); background: var(--bg); border-radius: 6px; padding: 1px 7px; font-size: 12px; cursor: pointer;
+}
+.repo-chip:hover { border-color: var(--selected); color: var(--selected); }
+.repo-chip.more { color: var(--muted); border-style: dashed; }
+.empty { color: var(--muted); text-align: center; padding: 48px 0; }
+
+@media (max-width: 860px) {
+  .top { height: auto; flex-wrap: wrap; gap: 8px 16px; padding: 10px 16px; }
+  .stats { margin-left: 0; width: 100%; white-space: normal; }
+  main { display: block; overflow-y: auto; }
+  .impact { display: block; }
+  .graph-wrap { height: 60vh; }
+  .panel { border-left: 0; border-top: 1px solid var(--border); }
+  .drift { padding: 16px; }
+  .drift-head { flex-wrap: wrap; }
+  .toggle { margin-left: 0; }
+}
+
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><a class="home" href="https://github.com/Zintrivious/ripplemap" target="_blank" rel="noopener" title="Made with ripplemap"><span class="logo" aria-hidden="true"></span>ripplemap</a><span class="source">github.com/cloudposse</span></div>
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="impact" aria-selected="true">Impact</button>
+    <button role="tab" data-tab="drift" aria-selected="false">Drift <span class="count" id="drift-count"></span></button>
+  </nav>
+  <div class="stats" id="stats"></div>
+</header>
+
+<main>
+  <section id="tab-impact" class="tab impact">
+    <div class="graph-wrap">
+      <svg id="graph" role="img" aria-label="Dependency graph"><g id="viewport"><g id="edges"></g><g id="nodes"></g><g id="labels"></g></g></svg>
+      <div class="graph-tools">
+        <div class="kinds" id="kinds"></div>
+        <button id="fit" title="Fit to screen">Fit</button>
+      </div>
+      <div class="legend">
+        <span><i class="dot selected"></i>selected</span>
+        <span><i class="dot direct"></i>affected directly</span>
+        <span><i class="dot indirect"></i>affected indirectly</span>
+        <span><i class="dot dependency"></i>it depends on</span>
+      </div>
+      <div class="tooltip" id="tooltip" hidden></div>
+    </div>
+    <aside class="panel">
+      <label class="search"><input id="search" type="search" placeholder="Find a repo…" list="repo-names" autocomplete="off"><datalist id="repo-names"></datalist></label>
+      <div id="details"></div>
+    </aside>
+  </section>
+  <section id="tab-drift" class="tab drift" hidden>
+    <div class="drift-head">
+      <p>Shared modules, images, workflows and packages used at more than one version.</p>
+      <label class="toggle"><input type="checkbox" id="third-party"> Include third-party</label>
+    </div>
+    <div id="drift-list"></div>
+  </section>
+</main>
+<script type="application/json" id="ripplemap-data">{"source":"github.com/cloudposse","generatedAt":"2026-11-04T03:47:20.356Z","problems":0,"owner":"cloudposse","repos":[{"id":"cloudposse/terraform-artifactory-kv-store","url":"https://github.com/cloudposse/terraform-artifactory-kv-store"},{"id":"cloudposse/terraform-aws-acm-request-certificate","url":"https://github.com/cloudposse/terraform-aws-acm-request-certificate"},{"id":"cloudposse/terraform-aws-agentcore","url":"https://github.com/cloudposse/terraform-aws-agentcore"},{"id":"cloudposse/terraform-aws-alb","url":"https://github.com/cloudposse/terraform-aws-alb"},{"id":"cloudposse/terraform-aws-alb-ingress","url":"https://github.com/cloudposse/terraform-aws-alb-ingress"},{"id":"cloudposse/terraform-aws-alb-target-group-cloudwatch-sns-alarms","url":"https://github.com/cloudposse/terraform-aws-alb-target-group-cloudwatch-sns-alarms"},{"id":"cloudposse/terraform-aws-amplify-app","url":"https://github.com/cloudposse/terraform-aws-amplify-app"},{"id":"cloudposse/terraform-aws-api-gateway","url":"https://github.com/cloudposse/terraform-aws-api-gateway"},{"id":"cloudposse/terraform-aws-athena","url":"https://github.com/cloudposse/terraform-aws-athena"},{"id":"cloudposse/terraform-aws-backup","url":"https://github.com/cloudposse/terraform-aws-backup"},{"id":"cloudposse/terraform-aws-bedrock","url":"https://github.com/cloudposse/terraform-aws-bedrock"},{"id":"cloudposse/terraform-aws-budgets","url":"https://github.com/cloudposse/terraform-aws-budgets"},{"id":"cloudposse/terraform-aws-cicd","url":"https://github.com/cloudposse/terraform-aws-cicd"},{"id":"cloudposse/terraform-aws-cloudformation-stack","url":"https://github.com/cloudposse/terraform-aws-cloudformation-stack"},{"id":"cloudposse/terraform-aws-cloudformation-stack-set","url":"https://github.com/cloudposse/terraform-aws-cloudformation-stack-set"},{"id":"cloudposse/terraform-aws-cloudfront-cdn","url":"https://github.com/cloudposse/terraform-aws-cloudfront-cdn"},{"id":"cloudposse/terraform-aws-cloudfront-s3-cdn","url":"https://github.com/cloudposse/terraform-aws-cloudfront-s3-cdn"},{"id":"cloudposse/terraform-aws-cloudtrail","url":"https://github.com/cloudposse/terraform-aws-cloudtrail"},{"id":"cloudposse/terraform-aws-cloudtrail-cloudwatch-alarms","url":"https://github.com/cloudposse/terraform-aws-cloudtrail-cloudwatch-alarms"},{"id":"cloudposse/terraform-aws-cloudtrail-s3-bucket","url":"https://github.com/cloudposse/terraform-aws-cloudtrail-s3-bucket"},{"id":"cloudposse/terraform-aws-cloudwatch-events","url":"https://github.com/cloudposse/terraform-aws-cloudwatch-events"},{"id":"cloudposse/terraform-aws-cloudwatch-flow-logs","url":"https://github.com/cloudposse/terraform-aws-cloudwatch-flow-logs"},{"id":"cloudposse/terraform-aws-cloudwatch-logs","url":"https://github.com/cloudposse/terraform-aws-cloudwatch-logs"},{"id":"cloudposse/terraform-aws-code-deploy","url":"https://github.com/cloudposse/terraform-aws-code-deploy"},{"id":"cloudposse/terraform-aws-codeartifact","url":"https://github.com/cloudposse/terraform-aws-codeartifact"},{"id":"cloudposse/terraform-aws-codebuild","url":"https://github.com/cloudposse/terraform-aws-codebuild"},{"id":"cloudposse/terraform-aws-config","url":"https://github.com/cloudposse/terraform-aws-config"},{"id":"cloudposse/terraform-aws-config-storage","url":"https://github.com/cloudposse/terraform-aws-config-storage"},{"id":"cloudposse/terraform-aws-datadog-integration","url":"https://github.com/cloudposse/terraform-aws-datadog-integration"},{"id":"cloudposse/terraform-aws-datadog-lambda-forwarder","url":"https://github.com/cloudposse/terraform-aws-datadog-lambda-forwarder"},{"id":"cloudposse/terraform-aws-dms","url":"https://github.com/cloudposse/terraform-aws-dms"},{"id":"cloudposse/terraform-aws-documentdb-cluster","url":"https://github.com/cloudposse/terraform-aws-documentdb-cluster"},{"id":"cloudposse/terraform-aws-dynamic-subnets","url":"https://github.com/cloudposse/terraform-aws-dynamic-subnets"},{"id":"cloudposse/terraform-aws-dynamodb","url":"https://github.com/cloudposse/terraform-aws-dynamodb"},{"id":"cloudposse/terraform-aws-dynamodb-autoscaler","url":"https://github.com/cloudposse/terraform-aws-dynamodb-autoscaler"},{"id":"cloudposse/terraform-aws-ec2-admin-server","url":"https://github.com/cloudposse/terraform-aws-ec2-admin-server"},{"id":"cloudposse/terraform-aws-ec2-ami-snapshot","url":"https://github.com/cloudposse/terraform-aws-ec2-ami-snapshot"},{"id":"cloudposse/terraform-aws-ec2-autoscale-group","url":"https://github.com/cloudposse/terraform-aws-ec2-autoscale-group"},{"id":"cloudposse/terraform-aws-ec2-bastion-server","url":"https://github.com/cloudposse/terraform-aws-ec2-bastion-server"},{"id":"cloudposse/terraform-aws-ec2-client-vpn","url":"https://github.com/cloudposse/terraform-aws-ec2-client-vpn"},{"id":"cloudposse/terraform-aws-ec2-instance","url":"https://github.com/cloudposse/terraform-aws-ec2-instance"},{"id":"cloudposse/terraform-aws-ec2-instance-group","url":"https://github.com/cloudposse/terraform-aws-ec2-instance-group"},{"id":"cloudposse/terraform-aws-ecr","url":"https://github.com/cloudposse/terraform-aws-ecr"},{"id":"cloudposse/terraform-aws-ecr-public","url":"https://github.com/cloudposse/terraform-aws-ecr-public"},{"id":"cloudposse/terraform-aws-ecs-alb-service-task","url":"https://github.com/cloudposse/terraform-aws-ecs-alb-service-task"},{"id":"cloudposse/terraform-aws-ecs-cloudwatch-autoscaling","url":"https://github.com/cloudposse/terraform-aws-ecs-cloudwatch-autoscaling"},{"id":"cloudposse/terraform-aws-ecs-cloudwatch-sns-alarms","url":"https://github.com/cloudposse/terraform-aws-ecs-cloudwatch-sns-alarms"},{"id":"cloudposse/terraform-aws-ecs-cluster","url":"https://github.com/cloudposse/terraform-aws-ecs-cluster"},{"id":"cloudposse/terraform-aws-ecs-codepipeline","url":"https://github.com/cloudposse/terraform-aws-ecs-codepipeline"},{"id":"cloudposse/terraform-aws-ecs-container-definition","url":"https://github.com/cloudposse/terraform-aws-ecs-container-definition"},{"id":"cloudposse/terraform-aws-ecs-web-app","url":"https://github.com/cloudposse/terraform-aws-ecs-web-app"},{"id":"cloudposse/terraform-aws-efs","url":"https://github.com/cloudposse/terraform-aws-efs"},{"id":"cloudposse/terraform-aws-efs-backup","url":"https://github.com/cloudposse/terraform-aws-efs-backup"},{"id":"cloudposse/terraform-aws-efs-cloudwatch-sns-alarms","url":"https://github.com/cloudposse/terraform-aws-efs-cloudwatch-sns-alarms"},{"id":"cloudposse/terraform-aws-eks-cluster","url":"https://github.com/cloudposse/terraform-aws-eks-cluster"},{"id":"cloudposse/terraform-aws-eks-fargate-profile","url":"https://github.com/cloudposse/terraform-aws-eks-fargate-profile"},{"id":"cloudposse/terraform-aws-eks-iam-role","url":"https://github.com/cloudposse/terraform-aws-eks-iam-role"},{"id":"cloudposse/terraform-aws-eks-node-group","url":"https://github.com/cloudposse/terraform-aws-eks-node-group"},{"id":"cloudposse/terraform-aws-eks-workers","url":"https://github.com/cloudposse/terraform-aws-eks-workers"},{"id":"cloudposse/terraform-aws-elastic-beanstalk-application","url":"https://github.com/cloudposse/terraform-aws-elastic-beanstalk-application"},{"id":"cloudposse/terraform-aws-elastic-beanstalk-environment","url":"https://github.com/cloudposse/terraform-aws-elastic-beanstalk-environment"},{"id":"cloudposse/terraform-aws-elasticache-memcached","url":"https://github.com/cloudposse/terraform-aws-elasticache-memcached"},{"id":"cloudposse/terraform-aws-elasticache-redis","url":"https://github.com/cloudposse/terraform-aws-elasticache-redis"},{"id":"cloudposse/terraform-aws-elasticsearch","url":"https://github.com/cloudposse/terraform-aws-elasticsearch"},{"id":"cloudposse/terraform-aws-emr-cluster","url":"https://github.com/cloudposse/terraform-aws-emr-cluster"},{"id":"cloudposse/terraform-aws-firewall-manager","url":"https://github.com/cloudposse/terraform-aws-firewall-manager"},{"id":"cloudposse/terraform-aws-github-action-token-rotator","url":"https://github.com/cloudposse/terraform-aws-github-action-token-rotator"},{"id":"cloudposse/terraform-aws-global-accelerator","url":"https://github.com/cloudposse/terraform-aws-global-accelerator"},{"id":"cloudposse/terraform-aws-glue","url":"https://github.com/cloudposse/terraform-aws-glue"},{"id":"cloudposse/terraform-aws-guardduty","url":"https://github.com/cloudposse/terraform-aws-guardduty"},{"id":"cloudposse/terraform-aws-health-events","url":"https://github.com/cloudposse/terraform-aws-health-events"},{"id":"cloudposse/terraform-aws-helm-release","url":"https://github.com/cloudposse/terraform-aws-helm-release"},{"id":"cloudposse/terraform-aws-iam-account-settings","url":"https://github.com/cloudposse/terraform-aws-iam-account-settings"},{"id":"cloudposse/terraform-aws-iam-assumed-roles","url":"https://github.com/cloudposse/terraform-aws-iam-assumed-roles"},{"id":"cloudposse/terraform-aws-iam-policy","url":"https://github.com/cloudposse/terraform-aws-iam-policy"},{"id":"cloudposse/terraform-aws-iam-role","url":"https://github.com/cloudposse/terraform-aws-iam-role"},{"id":"cloudposse/terraform-aws-iam-s3-user","url":"https://github.com/cloudposse/terraform-aws-iam-s3-user"},{"id":"cloudposse/terraform-aws-iam-system-user","url":"https://github.com/cloudposse/terraform-aws-iam-system-user"},{"id":"cloudposse/terraform-aws-iam-user","url":"https://github.com/cloudposse/terraform-aws-iam-user"},{"id":"cloudposse/terraform-aws-inspector","url":"https://github.com/cloudposse/terraform-aws-inspector"},{"id":"cloudposse/terraform-aws-ipam","url":"https://github.com/cloudposse/terraform-aws-ipam"},{"id":"cloudposse/terraform-aws-key-pair","url":"https://github.com/cloudposse/terraform-aws-key-pair"},{"id":"cloudposse/terraform-aws-kinesis-stream","url":"https://github.com/cloudposse/terraform-aws-kinesis-stream"},{"id":"cloudposse/terraform-aws-kms-key","url":"https://github.com/cloudposse/terraform-aws-kms-key"},{"id":"cloudposse/terraform-aws-lakeformation","url":"https://github.com/cloudposse/terraform-aws-lakeformation"},{"id":"cloudposse/terraform-aws-lambda-elasticsearch-cleanup","url":"https://github.com/cloudposse/terraform-aws-lambda-elasticsearch-cleanup"},{"id":"cloudposse/terraform-aws-lambda-function","url":"https://github.com/cloudposse/terraform-aws-lambda-function"},{"id":"cloudposse/terraform-aws-lb-s3-bucket","url":"https://github.com/cloudposse/terraform-aws-lb-s3-bucket"},{"id":"cloudposse/terraform-aws-macie","url":"https://github.com/cloudposse/terraform-aws-macie"},{"id":"cloudposse/terraform-aws-managed-grafana","url":"https://github.com/cloudposse/terraform-aws-managed-grafana"},{"id":"cloudposse/terraform-aws-managed-prometheus","url":"https://github.com/cloudposse/terraform-aws-managed-prometheus"},{"id":"cloudposse/terraform-aws-memorydb","url":"https://github.com/cloudposse/terraform-aws-memorydb"},{"id":"cloudposse/terraform-aws-mq-broker","url":"https://github.com/cloudposse/terraform-aws-mq-broker"},{"id":"cloudposse/terraform-aws-msk-apache-kafka-cluster","url":"https://github.com/cloudposse/terraform-aws-msk-apache-kafka-cluster"},{"id":"cloudposse/terraform-aws-multi-az-subnets","url":"https://github.com/cloudposse/terraform-aws-multi-az-subnets"},{"id":"cloudposse/terraform-aws-mwaa","url":"https://github.com/cloudposse/terraform-aws-mwaa"},{"id":"cloudposse/terraform-aws-named-subnets","url":"https://github.com/cloudposse/terraform-aws-named-subnets"},{"id":"cloudposse/terraform-aws-network-firewall","url":"https://github.com/cloudposse/terraform-aws-network-firewall"},{"id":"cloudposse/terraform-aws-nlb","url":"https://github.com/cloudposse/terraform-aws-nlb"},{"id":"cloudposse/terraform-aws-organization-access-group","url":"https://github.com/cloudposse/terraform-aws-organization-access-group"},{"id":"cloudposse/terraform-aws-organization-access-role","url":"https://github.com/cloudposse/terraform-aws-organization-access-role"},{"id":"cloudposse/terraform-aws-rds","url":"https://github.com/cloudposse/terraform-aws-rds"},{"id":"cloudposse/terraform-aws-rds-cloudwatch-sns-alarms","url":"https://github.com/cloudposse/terraform-aws-rds-cloudwatch-sns-alarms"},{"id":"cloudposse/terraform-aws-rds-cluster","url":"https://github.com/cloudposse/terraform-aws-rds-cluster"},{"id":"cloudposse/terraform-aws-rds-cluster-instance-group","url":"https://github.com/cloudposse/terraform-aws-rds-cluster-instance-group"},{"id":"cloudposse/terraform-aws-rds-db-proxy","url":"https://github.com/cloudposse/terraform-aws-rds-db-proxy"},{"id":"cloudposse/terraform-aws-rds-replica","url":"https://github.com/cloudposse/terraform-aws-rds-replica"},{"id":"cloudposse/terraform-aws-redshift-cluster","url":"https://github.com/cloudposse/terraform-aws-redshift-cluster"},{"id":"cloudposse/terraform-aws-refarch-utils","url":"https://github.com/cloudposse/terraform-aws-refarch-utils"},{"id":"cloudposse/terraform-aws-route53-alias","url":"https://github.com/cloudposse/terraform-aws-route53-alias"},{"id":"cloudposse/terraform-aws-route53-cluster-hostname","url":"https://github.com/cloudposse/terraform-aws-route53-cluster-hostname"},{"id":"cloudposse/terraform-aws-route53-cluster-zone","url":"https://github.com/cloudposse/terraform-aws-route53-cluster-zone"},{"id":"cloudposse/terraform-aws-route53-resolver-dns-firewall","url":"https://github.com/cloudposse/terraform-aws-route53-resolver-dns-firewall"},{"id":"cloudposse/terraform-aws-s3-bucket","url":"https://github.com/cloudposse/terraform-aws-s3-bucket"},{"id":"cloudposse/terraform-aws-s3-log-storage","url":"https://github.com/cloudposse/terraform-aws-s3-log-storage"},{"id":"cloudposse/terraform-aws-s3-website","url":"https://github.com/cloudposse/terraform-aws-s3-website"},{"id":"cloudposse/terraform-aws-security-group","url":"https://github.com/cloudposse/terraform-aws-security-group"},{"id":"cloudposse/terraform-aws-security-hub","url":"https://github.com/cloudposse/terraform-aws-security-hub"},{"id":"cloudposse/terraform-aws-service-control-policies","url":"https://github.com/cloudposse/terraform-aws-service-control-policies"},{"id":"cloudposse/terraform-aws-service-quotas","url":"https://github.com/cloudposse/terraform-aws-service-quotas"},{"id":"cloudposse/terraform-aws-ses","url":"https://github.com/cloudposse/terraform-aws-ses"},{"id":"cloudposse/terraform-aws-ses-lambda-forwarder","url":"https://github.com/cloudposse/terraform-aws-ses-lambda-forwarder"},{"id":"cloudposse/terraform-aws-sns-cloudwatch-sns-alarms","url":"https://github.com/cloudposse/terraform-aws-sns-cloudwatch-sns-alarms"},{"id":"cloudposse/terraform-aws-sns-lambda-notify-slack","url":"https://github.com/cloudposse/terraform-aws-sns-lambda-notify-slack"},{"id":"cloudposse/terraform-aws-sns-topic","url":"https://github.com/cloudposse/terraform-aws-sns-topic"},{"id":"cloudposse/terraform-aws-ssm-iam-role","url":"https://github.com/cloudposse/terraform-aws-ssm-iam-role"},{"id":"cloudposse/terraform-aws-ssm-parameter-chamber-reader","url":"https://github.com/cloudposse/terraform-aws-ssm-parameter-chamber-reader"},{"id":"cloudposse/terraform-aws-ssm-parameter-store","url":"https://github.com/cloudposse/terraform-aws-ssm-parameter-store"},{"id":"cloudposse/terraform-aws-ssm-parameter-store-policy-documents","url":"https://github.com/cloudposse/terraform-aws-ssm-parameter-store-policy-documents"},{"id":"cloudposse/terraform-aws-ssm-patch-manager","url":"https://github.com/cloudposse/terraform-aws-ssm-patch-manager"},{"id":"cloudposse/terraform-aws-ssm-tls-self-signed-cert","url":"https://github.com/cloudposse/terraform-aws-ssm-tls-self-signed-cert"},{"id":"cloudposse/terraform-aws-ssm-tls-ssh-key-pair","url":"https://github.com/cloudposse/terraform-aws-ssm-tls-ssh-key-pair"},{"id":"cloudposse/terraform-aws-sso","url":"https://github.com/cloudposse/terraform-aws-sso"},{"id":"cloudposse/terraform-aws-step-functions","url":"https://github.com/cloudposse/terraform-aws-step-functions"},{"id":"cloudposse/terraform-aws-tfstate-backend","url":"https://github.com/cloudposse/terraform-aws-tfstate-backend"},{"id":"cloudposse/terraform-aws-transfer-sftp","url":"https://github.com/cloudposse/terraform-aws-transfer-sftp"},{"id":"cloudposse/terraform-aws-transit-gateway","url":"https://github.com/cloudposse/terraform-aws-transit-gateway"},{"id":"cloudposse/terraform-aws-utils","url":"https://github.com/cloudposse/terraform-aws-utils"},{"id":"cloudposse/terraform-aws-vpc","url":"https://github.com/cloudposse/terraform-aws-vpc"},{"id":"cloudposse/terraform-aws-vpc-flow-logs-s3-bucket","url":"https://github.com/cloudposse/terraform-aws-vpc-flow-logs-s3-bucket"},{"id":"cloudposse/terraform-aws-vpc-peering","url":"https://github.com/cloudposse/terraform-aws-vpc-peering"},{"id":"cloudposse/terraform-aws-vpc-peering-multi-account","url":"https://github.com/cloudposse/terraform-aws-vpc-peering-multi-account"},{"id":"cloudposse/terraform-aws-vpn-connection","url":"https://github.com/cloudposse/terraform-aws-vpn-connection"},{"id":"cloudposse/terraform-aws-waf","url":"https://github.com/cloudposse/terraform-aws-waf"},{"id":"cloudposse/terraform-cloudflare-waf-rulesets","url":"https://github.com/cloudposse/terraform-cloudflare-waf-rulesets"},{"id":"cloudposse/terraform-cloudflare-zone","url":"https://github.com/cloudposse/terraform-cloudflare-zone"},{"id":"cloudposse/terraform-datadog-platform","url":"https://github.com/cloudposse/terraform-datadog-platform"},{"id":"cloudposse/terraform-example-module","url":"https://github.com/cloudposse/terraform-example-module"},{"id":"cloudposse/terraform-external-module-artifact","url":"https://github.com/cloudposse/terraform-external-module-artifact"},{"id":"cloudposse/terraform-github-repository","url":"https://github.com/cloudposse/terraform-github-repository"},{"id":"cloudposse/terraform-github-repository-webhooks","url":"https://github.com/cloudposse/terraform-github-repository-webhooks"},{"id":"cloudposse/terraform-module-test","url":"https://github.com/cloudposse/terraform-module-test"},{"id":"cloudposse/terraform-null-label","url":"https://github.com/cloudposse/terraform-null-label"},{"id":"cloudposse/terraform-opsgenie-incident-management","url":"https://github.com/cloudposse/terraform-opsgenie-incident-management"},{"id":"cloudposse/terraform-provider-atmos","url":"https://github.com/cloudposse/terraform-provider-atmos"},{"id":"cloudposse/terraform-provider-awsutils","url":"https://github.com/cloudposse/terraform-provider-awsutils"},{"id":"cloudposse/terraform-provider-context","url":"https://github.com/cloudposse/terraform-provider-context"},{"id":"cloudposse/terraform-provider-utils","url":"https://github.com/cloudposse/terraform-provider-utils"},{"id":"cloudposse/terraform-spacelift-cloud-infrastructure-automation","url":"https://github.com/cloudposse/terraform-spacelift-cloud-infrastructure-automation"},{"id":"cloudposse/terraform-terraform-label","url":"https://github.com/cloudposse/terraform-terraform-label"},{"id":"cloudposse/terraform-tls-ssh-key-pair","url":"https://github.com/cloudposse/terraform-tls-ssh-key-pair"},{"id":"cloudposse/terraform-yaml-config","url":"https://github.com/cloudposse/terraform-yaml-config"},{"id":"cloudposse/terraform-yaml-stack-config","url":"https://github.com/cloudposse/terraform-yaml-stack-config"}],"links":[{"from":"cloudposse/terraform-aws-acm-request-certificate","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-agentcore","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-alb","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-alb","to":"cloudposse/terraform-aws-lb-s3-bucket","kind":"terraform-module","name":"cloudposse/lb-s3-bucket/aws","version":"0.19.0","file":"main.tf","line":72,"confidence":"exact"},{"from":"cloudposse/terraform-aws-alb","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":95,"confidence":"exact"},{"from":"cloudposse/terraform-aws-alb","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":142,"confidence":"exact"},{"from":"cloudposse/terraform-aws-alb-ingress","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-alb-ingress","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":11,"confidence":"exact"},{"from":"cloudposse/terraform-aws-alb-target-group-cloudwatch-sns-alarms","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-alb-target-group-cloudwatch-sns-alarms","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":1,"confidence":"exact"},{"from":"cloudposse/terraform-aws-alb-target-group-cloudwatch-sns-alarms","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":9,"confidence":"exact"},{"from":"cloudposse/terraform-aws-alb-target-group-cloudwatch-sns-alarms","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":17,"confidence":"exact"},{"from":"cloudposse/terraform-aws-alb-target-group-cloudwatch-sns-alarms","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":25,"confidence":"exact"},{"from":"cloudposse/terraform-aws-alb-target-group-cloudwatch-sns-alarms","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":33,"confidence":"exact"},{"from":"cloudposse/terraform-aws-amplify-app","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-amplify-app","to":"cloudposse/terraform-aws-iam-role","kind":"terraform-module","name":"cloudposse/iam-role/aws","version":"0.18.0","file":"iam.tf","line":97,"confidence":"exact"},{"from":"cloudposse/terraform-aws-api-gateway","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-api-gateway","to":"cloudposse/terraform-aws-cloudwatch-logs","kind":"terraform-module","name":"cloudposse/cloudwatch-logs/aws","version":"0.6.9","file":"main.tf","line":29,"confidence":"exact"},{"from":"cloudposse/terraform-aws-api-gateway","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/account-settings/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-api-gateway","to":"cloudposse/terraform-aws-iam-role","kind":"terraform-module","name":"cloudposse/iam-role/aws","version":"0.19.0","file":"modules/account-settings/main.tf","line":29,"confidence":"exact"},{"from":"cloudposse/terraform-aws-athena","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-backup","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-backup","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":16,"confidence":"exact"},{"from":"cloudposse/terraform-aws-bedrock","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-budgets","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-budgets","to":"cloudposse/terraform-aws-kms-key","kind":"terraform-module","name":"cloudposse/kms-key/aws","version":"0.12.1","file":"main.tf","line":60,"confidence":"exact"},{"from":"cloudposse/terraform-aws-budgets","to":"cloudposse/terraform-aws-sns-topic","kind":"terraform-module","name":"cloudposse/sns-topic/aws","version":"0.21.0","file":"main.tf","line":77,"confidence":"exact"},{"from":"cloudposse/terraform-aws-budgets","to":"cloudposse/terraform-aws-sns-lambda-notify-slack","kind":"terraform-module","name":"cloudposse/sns-lambda-notify-slack/aws","version":"0.9.3","file":"main.tf","line":92,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cicd","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cicd","to":"cloudposse/terraform-aws-codebuild","kind":"terraform-module","name":"cloudposse/codebuild/aws","version":"2.0.1","file":"main.tf","line":205,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cicd","to":"cloudposse/terraform-github-repository-webhooks","kind":"terraform-module","name":"cloudposse/repository-webhooks/github","version":"0.12.1","file":"main.tf","line":369,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cloudformation-stack","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cloudformation-stack-set","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"github.com/cloudposse/terraform-null-label","version":"tags/0.5.3","file":"main.tf","line":2,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cloudformation-stack-set","to":"cloudposse/terraform-aws-iam-role","kind":"terraform-module","name":"github.com/cloudposse/terraform-aws-iam-role","version":"tags/0.4.0","file":"main.tf","line":21,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cloudfront-cdn","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cloudfront-cdn","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":1,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cloudfront-cdn","to":"cloudposse/terraform-aws-s3-log-storage","kind":"terraform-module","name":"cloudposse/s3-log-storage/aws","version":"2.0.0","file":"main.tf","line":16,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cloudfront-cdn","to":"cloudposse/terraform-aws-route53-alias","kind":"terraform-module","name":"cloudposse/route53-alias/aws","version":"0.13.0","file":"main.tf","line":342,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cloudfront-s3-cdn","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cloudfront-s3-cdn","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":124,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cloudfront-s3-cdn","to":"cloudposse/terraform-aws-s3-log-storage","kind":"terraform-module","name":"cloudposse/s3-log-storage/aws","version":"1.4.5","file":"main.tf","line":421,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cloudfront-s3-cdn","to":"cloudposse/terraform-aws-route53-alias","kind":"terraform-module","name":"cloudposse/route53-alias/aws","version":"0.13.0","file":"main.tf","line":785,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cloudfront-s3-cdn","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/lambda@edge/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cloudfront-s3-cdn","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/lambda@edge/main.tf","line":22,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cloudfront-s3-cdn","to":"cloudposse/terraform-aws-iam-role","kind":"terraform-module","name":"cloudposse/iam-role/aws","version":"0.19.0","file":"modules/lambda@edge/main.tf","line":48,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cloudtrail","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cloudtrail-cloudwatch-alarms","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cloudtrail-cloudwatch-alarms","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":3,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cloudtrail-cloudwatch-alarms","to":"cloudposse/terraform-aws-kms-key","kind":"terraform-module","name":"cloudposse/kms-key/aws","version":"0.10.0","file":"main.tf","line":12,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cloudtrail-cloudwatch-alarms","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":59,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cloudtrail-s3-bucket","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cloudtrail-s3-bucket","to":"cloudposse/terraform-aws-s3-log-storage","kind":"terraform-module","name":"cloudposse/s3-log-storage/aws","version":"2.1.0","file":"main.tf","line":2,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cloudtrail-s3-bucket","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":41,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cloudtrail-s3-bucket","to":"cloudposse/terraform-aws-s3-log-storage","kind":"terraform-module","name":"cloudposse/s3-log-storage/aws","version":"2.1.0","file":"main.tf","line":54,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cloudwatch-events","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cloudwatch-events","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":11,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cloudwatch-events","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":47,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cloudwatch-flow-logs","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"github.com/cloudposse/terraform-null-label","version":"tags/0.3.1","file":"kinesis.tf","line":1,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cloudwatch-flow-logs","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"github.com/cloudposse/terraform-null-label","version":"tags/0.3.1","file":"kinesis.tf","line":12,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cloudwatch-flow-logs","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"github.com/cloudposse/terraform-null-label","version":"tags/0.3.1","file":"main.tf","line":3,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cloudwatch-flow-logs","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"github.com/cloudposse/terraform-null-label","version":"tags/0.3.1","file":"main.tf","line":14,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cloudwatch-flow-logs","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"github.com/cloudposse/terraform-null-label","version":"tags/0.3.1","file":"main.tf","line":25,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cloudwatch-logs","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cloudwatch-logs","to":"cloudposse/terraform-aws-iam-role","kind":"terraform-module","name":"cloudposse/iam-role/aws","version":"0.19.0","file":"iam.tf","line":5,"confidence":"exact"},{"from":"cloudposse/terraform-aws-cloudwatch-logs","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":5,"confidence":"exact"},{"from":"cloudposse/terraform-aws-code-deploy","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-code-deploy","to":"cloudposse/terraform-aws-sns-topic","kind":"terraform-module","name":"cloudposse/sns-topic/aws","version":"0.21.0","file":"main.tf","line":55,"confidence":"exact"},{"from":"cloudposse/terraform-aws-codeartifact","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-codeartifact","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/package-groups/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-codebuild","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-config","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-config","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":4,"confidence":"exact"},{"from":"cloudposse/terraform-aws-config","to":"cloudposse/terraform-aws-sns-topic","kind":"terraform-module","name":"cloudposse/sns-topic/aws","version":"1.2.0","file":"main.tf","line":154,"confidence":"exact"},{"from":"cloudposse/terraform-aws-config","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":181,"confidence":"exact"},{"from":"cloudposse/terraform-aws-config","to":"cloudposse/terraform-aws-iam-role","kind":"terraform-module","name":"cloudposse/iam-role/aws","version":"1.0.0","file":"main.tf","line":194,"confidence":"exact"},{"from":"cloudposse/terraform-aws-config","to":"cloudposse/terraform-aws-iam-role","kind":"terraform-module","name":"cloudposse/iam-role/aws","version":"1.0.0","file":"main.tf","line":222,"confidence":"exact"},{"from":"cloudposse/terraform-aws-config","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":302,"confidence":"exact"},{"from":"cloudposse/terraform-aws-config","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/cis-1-2-rules/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-config","to":"cloudposse/terraform-yaml-config","kind":"terraform-module","name":"cloudposse/config/yaml","version":"1.0.2","file":"modules/cis-1-2-rules/main.tf","line":45,"confidence":"exact"},{"from":"cloudposse/terraform-aws-config","to":"cloudposse/terraform-aws-utils","kind":"terraform-module","name":"cloudposse/utils/aws","version":"1.4.0","file":"modules/cis-1-2-rules/main.tf","line":57,"confidence":"exact"},{"from":"cloudposse/terraform-aws-config","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/conformance-pack/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-config-storage","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-config-storage","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":1,"confidence":"exact"},{"from":"cloudposse/terraform-aws-config-storage","to":"cloudposse/terraform-aws-s3-log-storage","kind":"terraform-module","name":"cloudposse/s3-log-storage/aws","version":"1.4.1","file":"main.tf","line":9,"confidence":"exact"},{"from":"cloudposse/terraform-aws-datadog-integration","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-datadog-integration","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"iam-policy-core-integration.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-datadog-integration","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"iam-policy-full-integration.tf","line":251,"confidence":"exact"},{"from":"cloudposse/terraform-aws-datadog-integration","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"iam-policy-resource-collection.tf","line":36,"confidence":"exact"},{"from":"cloudposse/terraform-aws-datadog-lambda-forwarder","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-datadog-lambda-forwarder","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"lambda-log.tf","line":15,"confidence":"exact"},{"from":"cloudposse/terraform-aws-datadog-lambda-forwarder","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"lambda-log.tf","line":26,"confidence":"exact"},{"from":"cloudposse/terraform-aws-datadog-lambda-forwarder","to":"cloudposse/terraform-external-module-artifact","kind":"terraform-module","name":"cloudposse/module-artifact/external","version":"0.8.0","file":"lambda-log.tf","line":37,"confidence":"exact"},{"from":"cloudposse/terraform-aws-datadog-lambda-forwarder","to":"cloudposse/terraform-aws-cloudwatch-events","kind":"terraform-module","name":"cloudposse/cloudwatch-events/aws","version":"0.10.0","file":"lambda-log.tf","line":266,"confidence":"exact"},{"from":"cloudposse/terraform-aws-datadog-lambda-forwarder","to":"cloudposse/terraform-aws-s3-bucket","kind":"terraform-module","name":"cloudposse/s3-bucket/aws","version":"4.2.0","file":"lambda-log.tf","line":282,"confidence":"exact"},{"from":"cloudposse/terraform-aws-datadog-lambda-forwarder","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"lambda-rds.tf","line":12,"confidence":"exact"},{"from":"cloudposse/terraform-aws-datadog-lambda-forwarder","to":"cloudposse/terraform-external-module-artifact","kind":"terraform-module","name":"cloudposse/module-artifact/external","version":"0.8.0","file":"lambda-rds.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-datadog-lambda-forwarder","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"lambda-vpc-logs.tf","line":11,"confidence":"exact"},{"from":"cloudposse/terraform-aws-datadog-lambda-forwarder","to":"cloudposse/terraform-external-module-artifact","kind":"terraform-module","name":"cloudposse/module-artifact/external","version":"0.8.0","file":"lambda-vpc-logs.tf","line":22,"confidence":"exact"},{"from":"cloudposse/terraform-aws-dms","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-dms","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/dms-endpoint/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-dms","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/dms-event-subscription/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-dms","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/dms-iam/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-dms","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/dms-replication-instance/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-dms","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/dms-replication-task/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-documentdb-cluster","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-documentdb-cluster","to":"cloudposse/terraform-aws-route53-cluster-hostname","kind":"terraform-module","name":"cloudposse/route53-cluster-hostname/aws","version":"0.13.0","file":"main.tf","line":162,"confidence":"exact"},{"from":"cloudposse/terraform-aws-documentdb-cluster","to":"cloudposse/terraform-aws-route53-cluster-hostname","kind":"terraform-module","name":"cloudposse/route53-cluster-hostname/aws","version":"0.13.0","file":"main.tf","line":174,"confidence":"exact"},{"from":"cloudposse/terraform-aws-documentdb-cluster","to":"cloudposse/terraform-aws-ssm-parameter-store","kind":"terraform-module","name":"cloudposse/ssm-parameter-store/aws","version":"0.13.0","file":"main.tf","line":186,"confidence":"exact"},{"from":"cloudposse/terraform-aws-dynamic-subnets","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-dynamic-subnets","to":"cloudposse/terraform-aws-utils","kind":"terraform-module","name":"cloudposse/utils/aws","version":"1.4.0","file":"main.tf","line":418,"confidence":"exact"},{"from":"cloudposse/terraform-aws-dynamic-subnets","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"nat-gateway.tf","line":1,"confidence":"exact"},{"from":"cloudposse/terraform-aws-dynamic-subnets","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"nat-instance.tf","line":6,"confidence":"exact"},{"from":"cloudposse/terraform-aws-dynamic-subnets","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"private.tf","line":1,"confidence":"exact"},{"from":"cloudposse/terraform-aws-dynamic-subnets","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"public.tf","line":1,"confidence":"exact"},{"from":"cloudposse/terraform-aws-dynamodb","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-dynamodb","to":"cloudposse/terraform-aws-dynamodb-autoscaler","kind":"terraform-module","name":"cloudposse/dynamodb-autoscaler/aws","version":"0.16.0","file":"main.tf","line":153,"confidence":"exact"},{"from":"cloudposse/terraform-aws-dynamodb-autoscaler","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ec2-admin-server","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":3,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ec2-admin-server","to":"cloudposse/terraform-aws-ec2-instance","kind":"terraform-module","name":"cloudposse/ec2-instance/aws","version":"1.2.1","file":"main.tf","line":41,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ec2-admin-server","to":"cloudposse/terraform-aws-route53-cluster-hostname","kind":"terraform-module","name":"cloudposse/route53-cluster-hostname/aws","version":"0.13.0","file":"main.tf","line":65,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ec2-autoscale-group","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ec2-bastion-server","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ec2-bastion-server","to":"cloudposse/terraform-aws-security-group","kind":"terraform-module","name":"cloudposse/security-group/aws","version":"0.3.3","file":"main.tf","line":36,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ec2-bastion-server","to":"cloudposse/terraform-aws-route53-cluster-hostname","kind":"terraform-module","name":"cloudposse/route53-cluster-hostname/aws","version":"0.12.2","file":"main.tf","line":102,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ec2-client-vpn","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ec2-client-vpn","to":"cloudposse/terraform-aws-ssm-tls-self-signed-cert","kind":"terraform-module","name":"cloudposse/ssm-tls-self-signed-cert/aws","version":"1.3.0","file":"main.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ec2-client-vpn","to":"cloudposse/terraform-aws-ssm-tls-self-signed-cert","kind":"terraform-module","name":"cloudposse/ssm-tls-self-signed-cert/aws","version":"1.3.0","file":"main.tf","line":59,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ec2-client-vpn","to":"cloudposse/terraform-aws-ssm-tls-self-signed-cert","kind":"terraform-module","name":"cloudposse/ssm-tls-self-signed-cert/aws","version":"1.3.0","file":"main.tf","line":96,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ec2-client-vpn","to":"cloudposse/terraform-aws-cloudwatch-logs","kind":"terraform-module","name":"cloudposse/cloudwatch-logs/aws","version":"0.6.8","file":"main.tf","line":131,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ec2-client-vpn","to":"cloudposse/terraform-aws-security-group","kind":"terraform-module","name":"cloudposse/security-group/aws","version":"2.2.0","file":"main.tf","line":195,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ec2-instance","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ec2-instance","to":"cloudposse/terraform-aws-security-group","kind":"terraform-module","name":"cloudposse/security-group/aws","version":"0.3.3","file":"security_group.tf","line":1,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ec2-instance","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"ssm_patch.tf","line":9,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ec2-instance-group","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ec2-instance-group","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":60,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ec2-instance-group","to":"cloudposse/terraform-aws-key-pair","kind":"terraform-module","name":"cloudposse/key-pair/aws","version":"0.19.0","file":"main.tf","line":129,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ec2-instance-group","to":"cloudposse/terraform-aws-security-group","kind":"terraform-module","name":"cloudposse/security-group/aws","version":"2.2.0","file":"security_group.tf","line":1,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecr","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecr","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/scanning_configuration/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecr-public","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecs-alb-service-task","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecs-alb-service-task","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":24,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecs-alb-service-task","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":33,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecs-alb-service-task","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":41,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecs-alb-service-task","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":50,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecs-cloudwatch-autoscaling","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecs-cloudwatch-autoscaling","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":1,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecs-cloudwatch-autoscaling","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":8,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecs-cloudwatch-sns-alarms","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecs-cloudwatch-sns-alarms","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":1,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecs-cloudwatch-sns-alarms","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":9,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecs-cloudwatch-sns-alarms","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":17,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecs-cloudwatch-sns-alarms","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":25,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecs-cluster","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecs-cluster","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"ec2.tf","line":39,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecs-cluster","to":"cloudposse/terraform-aws-ec2-autoscale-group","kind":"terraform-module","name":"cloudposse/ec2-autoscale-group/aws","version":"0.41.1","file":"ec2.tf","line":50,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecs-codepipeline","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecs-codepipeline","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":5,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecs-codepipeline","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":21,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecs-codepipeline","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":93,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecs-codepipeline","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":135,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecs-codepipeline","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":169,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecs-codepipeline","to":"cloudposse/terraform-aws-codebuild","kind":"terraform-module","name":"cloudposse/codebuild/aws","version":"2.0.2","file":"main.tf","line":213,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecs-codepipeline","to":"cloudposse/terraform-github-repository-webhooks","kind":"terraform-module","name":"cloudposse/repository-webhooks/github","version":"0.14.0","file":"main.tf","line":451,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecs-web-app","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecs-web-app","to":"cloudposse/terraform-aws-ecr","kind":"terraform-module","name":"cloudposse/ecr/aws","version":"1.0.0","file":"main.tf","line":3,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecs-web-app","to":"cloudposse/terraform-aws-alb-ingress","kind":"terraform-module","name":"cloudposse/alb-ingress/aws","version":"0.28.0","file":"main.tf","line":24,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecs-web-app","to":"cloudposse/terraform-aws-ecs-container-definition","kind":"terraform-module","name":"cloudposse/ecs-container-definition/aws","version":"0.58.1","file":"main.tf","line":77,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecs-web-app","to":"cloudposse/terraform-aws-ecs-alb-service-task","kind":"terraform-module","name":"cloudposse/ecs-alb-service-task/aws","version":"0.78.0","file":"main.tf","line":165,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecs-web-app","to":"cloudposse/terraform-aws-ecs-codepipeline","kind":"terraform-module","name":"cloudposse/ecs-codepipeline/aws","version":"0.34.1","file":"main.tf","line":214,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecs-web-app","to":"cloudposse/terraform-aws-ecs-cloudwatch-autoscaling","kind":"terraform-module","name":"cloudposse/ecs-cloudwatch-autoscaling/aws","version":"0.7.5","file":"main.tf","line":265,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecs-web-app","to":"cloudposse/terraform-aws-ecs-cloudwatch-sns-alarms","kind":"terraform-module","name":"cloudposse/ecs-cloudwatch-sns-alarms/aws","version":"0.12.2","file":"main.tf","line":290,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ecs-web-app","to":"cloudposse/terraform-aws-alb-target-group-cloudwatch-sns-alarms","kind":"terraform-module","name":"cloudposse/alb-target-group-cloudwatch-sns-alarms/aws","version":"0.17.0","file":"main.tf","line":353,"confidence":"exact"},{"from":"cloudposse/terraform-aws-efs","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-efs","to":"cloudposse/terraform-aws-security-group","kind":"terraform-module","name":"cloudposse/security-group/aws","version":"2.2.0","file":"main.tf","line":98,"confidence":"exact"},{"from":"cloudposse/terraform-aws-efs","to":"cloudposse/terraform-aws-route53-cluster-hostname","kind":"terraform-module","name":"cloudposse/route53-cluster-hostname/aws","version":"0.13.0","file":"main.tf","line":134,"confidence":"exact"},{"from":"cloudposse/terraform-aws-efs-backup","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"github.com/cloudposse/terraform-null-label","version":"tags/0.3.1","file":"cloudformation.tf","line":1,"confidence":"exact"},{"from":"cloudposse/terraform-aws-efs-backup","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"github.com/cloudposse/terraform-null-label","version":"tags/0.3.1","file":"cloudformation.tf","line":22,"confidence":"exact"},{"from":"cloudposse/terraform-aws-efs-backup","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"github.com/cloudposse/terraform-null-label","version":"tags/0.3.1","file":"iam.tf","line":15,"confidence":"exact"},{"from":"cloudposse/terraform-aws-efs-backup","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"github.com/cloudposse/terraform-null-label","version":"tags/0.3.1","file":"iam.tf","line":57,"confidence":"exact"},{"from":"cloudposse/terraform-aws-efs-backup","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"github.com/cloudposse/terraform-null-label","version":"tags/0.3.1","file":"main.tf","line":3,"confidence":"exact"},{"from":"cloudposse/terraform-aws-efs-backup","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"github.com/cloudposse/terraform-null-label","version":"tags/0.3.1","file":"s3.tf","line":1,"confidence":"exact"},{"from":"cloudposse/terraform-aws-efs-backup","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"github.com/cloudposse/terraform-null-label","version":"tags/0.3.1","file":"s3.tf","line":17,"confidence":"exact"},{"from":"cloudposse/terraform-aws-eks-cluster","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"capabilities.tf","line":27,"confidence":"exact"},{"from":"cloudposse/terraform-aws-eks-cluster","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-eks-cluster","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":41,"confidence":"exact"},{"from":"cloudposse/terraform-aws-eks-fargate-profile","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-eks-fargate-profile","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":22,"confidence":"exact"},{"from":"cloudposse/terraform-aws-eks-fargate-profile","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":36,"confidence":"exact"},{"from":"cloudposse/terraform-aws-eks-iam-role","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-eks-iam-role","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":47,"confidence":"exact"},{"from":"cloudposse/terraform-aws-eks-node-group","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-eks-node-group","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":78,"confidence":"exact"},{"from":"cloudposse/terraform-aws-eks-node-group","to":"cloudposse/terraform-aws-security-group","kind":"terraform-module","name":"cloudposse/security-group/aws","version":"2.2.0","file":"security-group.tf","line":3,"confidence":"exact"},{"from":"cloudposse/terraform-aws-eks-workers","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-eks-workers","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":21,"confidence":"exact"},{"from":"cloudposse/terraform-aws-eks-workers","to":"cloudposse/terraform-aws-ec2-autoscale-group","kind":"terraform-module","name":"cloudposse/ec2-autoscale-group/aws","version":"0.40.0","file":"main.tf","line":166,"confidence":"exact"},{"from":"cloudposse/terraform-aws-elastic-beanstalk-application","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-elastic-beanstalk-environment","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-elastic-beanstalk-environment","to":"cloudposse/terraform-aws-lb-s3-bucket","kind":"terraform-module","name":"cloudposse/lb-s3-bucket/aws","version":"0.20.0","file":"main.tf","line":1148,"confidence":"exact"},{"from":"cloudposse/terraform-aws-elastic-beanstalk-environment","to":"cloudposse/terraform-aws-route53-cluster-hostname","kind":"terraform-module","name":"cloudposse/route53-cluster-hostname/aws","version":"0.12.2","file":"main.tf","line":1158,"confidence":"exact"},{"from":"cloudposse/terraform-aws-elastic-beanstalk-environment","to":"cloudposse/terraform-aws-security-group","kind":"terraform-module","name":"cloudposse/security-group/aws","version":"1.0.1","file":"security-group.tf","line":1,"confidence":"exact"},{"from":"cloudposse/terraform-aws-elasticache-memcached","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-elasticache-memcached","to":"cloudposse/terraform-aws-security-group","kind":"terraform-module","name":"cloudposse/security-group/aws","version":"2.2.0","file":"main.tf","line":47,"confidence":"exact"},{"from":"cloudposse/terraform-aws-elasticache-memcached","to":"cloudposse/terraform-aws-route53-cluster-hostname","kind":"terraform-module","name":"cloudposse/route53-cluster-hostname/aws","version":"0.13.0","file":"main.tf","line":179,"confidence":"exact"},{"from":"cloudposse/terraform-aws-elasticache-redis","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-elasticache-redis","to":"cloudposse/terraform-aws-security-group","kind":"terraform-module","name":"cloudposse/security-group/aws","version":"2.2.0","file":"main.tf","line":43,"confidence":"exact"},{"from":"cloudposse/terraform-aws-elasticache-redis","to":"cloudposse/terraform-aws-route53-cluster-hostname","kind":"terraform-module","name":"cloudposse/route53-cluster-hostname/aws","version":"0.13.0","file":"main.tf","line":330,"confidence":"exact"},{"from":"cloudposse/terraform-aws-elasticsearch","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-elasticsearch","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":14,"confidence":"exact"},{"from":"cloudposse/terraform-aws-elasticsearch","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-elasticsearch","to":"cloudposse/terraform-aws-route53-cluster-hostname","kind":"terraform-module","name":"cloudposse/route53-cluster-hostname/aws","version":"0.13.0","file":"main.tf","line":205,"confidence":"exact"},{"from":"cloudposse/terraform-aws-elasticsearch","to":"cloudposse/terraform-aws-route53-cluster-hostname","kind":"terraform-module","name":"cloudposse/route53-cluster-hostname/aws","version":"0.13.0","file":"main.tf","line":218,"confidence":"exact"},{"from":"cloudposse/terraform-aws-emr-cluster","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-emr-cluster","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":32,"confidence":"exact"},{"from":"cloudposse/terraform-aws-emr-cluster","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":40,"confidence":"exact"},{"from":"cloudposse/terraform-aws-emr-cluster","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":48,"confidence":"exact"},{"from":"cloudposse/terraform-aws-emr-cluster","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":56,"confidence":"exact"},{"from":"cloudposse/terraform-aws-emr-cluster","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":64,"confidence":"exact"},{"from":"cloudposse/terraform-aws-emr-cluster","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":72,"confidence":"exact"},{"from":"cloudposse/terraform-aws-emr-cluster","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":80,"confidence":"exact"},{"from":"cloudposse/terraform-aws-emr-cluster","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":90,"confidence":"exact"},{"from":"cloudposse/terraform-aws-emr-cluster","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":98,"confidence":"exact"},{"from":"cloudposse/terraform-aws-emr-cluster","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":106,"confidence":"exact"},{"from":"cloudposse/terraform-aws-emr-cluster","to":"cloudposse/terraform-aws-route53-cluster-hostname","kind":"terraform-module","name":"cloudposse/route53-cluster-hostname/aws","version":"0.12.2","file":"main.tf","line":579,"confidence":"exact"},{"from":"cloudposse/terraform-aws-firewall-manager","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-firewall-manager","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"dns_firewall.tf","line":1,"confidence":"exact"},{"from":"cloudposse/terraform-aws-firewall-manager","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"firehose.tf","line":1,"confidence":"exact"},{"from":"cloudposse/terraform-aws-firewall-manager","to":"cloudposse/terraform-aws-s3-bucket","kind":"terraform-module","name":"cloudposse/s3-bucket/aws","version":"4.3.0","file":"firehose.tf","line":10,"confidence":"exact"},{"from":"cloudposse/terraform-aws-firewall-manager","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"network_firewall.tf","line":1,"confidence":"exact"},{"from":"cloudposse/terraform-aws-firewall-manager","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"security_groups_common.tf","line":1,"confidence":"exact"},{"from":"cloudposse/terraform-aws-firewall-manager","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"security_groups_content_audit.tf","line":1,"confidence":"exact"},{"from":"cloudposse/terraform-aws-firewall-manager","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"security_groups_usage_audit.tf","line":1,"confidence":"exact"},{"from":"cloudposse/terraform-aws-firewall-manager","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"shield_advanced.tf","line":1,"confidence":"exact"},{"from":"cloudposse/terraform-aws-firewall-manager","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"waf_v2.tf","line":1,"confidence":"exact"},{"from":"cloudposse/terraform-aws-firewall-manager","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"waf.tf","line":1,"confidence":"exact"},{"from":"cloudposse/terraform-aws-github-action-token-rotator","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-github-action-token-rotator","to":"cloudposse/terraform-aws-utils","kind":"terraform-module","name":"cloudposse/utils/aws","version":"unpinned","file":"main.tf","line":11,"confidence":"exact"},{"from":"cloudposse/terraform-aws-github-action-token-rotator","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":25,"confidence":"exact"},{"from":"cloudposse/terraform-aws-github-action-token-rotator","to":"cloudposse/terraform-aws-lambda-function","kind":"terraform-module","name":"cloudposse/lambda-function/aws","version":"0.3.2","file":"main.tf","line":34,"confidence":"exact"},{"from":"cloudposse/terraform-aws-github-action-token-rotator","to":"cloudposse/terraform-aws-ssm-parameter-store","kind":"terraform-module","name":"cloudposse/ssm-parameter-store/aws","version":"0.10.0","file":"main.tf","line":102,"confidence":"exact"},{"from":"cloudposse/terraform-aws-global-accelerator","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-global-accelerator","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/endpoint-group/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-glue","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-glue","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/glue-catalog-database/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-glue","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/glue-catalog-table/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-glue","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/glue-connection/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-glue","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/glue-crawler/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-glue","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/glue-job/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-glue","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/glue-registry/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-glue","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/glue-schema/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-glue","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/glue-trigger/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-glue","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/glue-workflow/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-guardduty","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-guardduty","to":"cloudposse/terraform-aws-sns-topic","kind":"terraform-module","name":"cloudposse/sns-topic/aws","version":"0.20.1","file":"main.tf","line":129,"confidence":"exact"},{"from":"cloudposse/terraform-aws-guardduty","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":142,"confidence":"exact"},{"from":"cloudposse/terraform-aws-health-events","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-health-events","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":7,"confidence":"exact"},{"from":"cloudposse/terraform-aws-health-events","to":"cloudposse/terraform-aws-kms-key","kind":"terraform-module","name":"cloudposse/kms-key/aws","version":"0.12.1","file":"sns.tf","line":3,"confidence":"exact"},{"from":"cloudposse/terraform-aws-health-events","to":"cloudposse/terraform-aws-sns-topic","kind":"terraform-module","name":"cloudposse/sns-topic/aws","version":"0.20.1","file":"sns.tf","line":49,"confidence":"exact"},{"from":"cloudposse/terraform-aws-helm-release","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-helm-release","to":"cloudposse/terraform-aws-iam-policy","kind":"terraform-module","name":"cloudposse/iam-policy/aws","version":"2.0.1","file":"main.tf","line":14,"confidence":"exact"},{"from":"cloudposse/terraform-aws-helm-release","to":"cloudposse/terraform-aws-eks-iam-role","kind":"terraform-module","name":"cloudposse/eks-iam-role/aws","version":"2.1.1","file":"main.tf","line":31,"confidence":"exact"},{"from":"cloudposse/terraform-aws-iam-account-settings","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-iam-assumed-roles","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"github.com/cloudposse/terraform-null-label","version":"tags/0.3.3","file":"main.tf","line":1,"confidence":"exact"},{"from":"cloudposse/terraform-aws-iam-assumed-roles","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"github.com/cloudposse/terraform-null-label","version":"tags/0.3.3","file":"main.tf","line":11,"confidence":"exact"},{"from":"cloudposse/terraform-aws-iam-policy","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-iam-role","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-iam-role","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":34,"confidence":"exact"},{"from":"cloudposse/terraform-aws-iam-s3-user","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-iam-s3-user","to":"cloudposse/terraform-aws-iam-system-user","kind":"terraform-module","name":"cloudposse/iam-system-user/aws","version":"1.2.1","file":"main.tf","line":16,"confidence":"exact"},{"from":"cloudposse/terraform-aws-iam-system-user","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-iam-system-user","to":"cloudposse/terraform-aws-ssm-parameter-store","kind":"terraform-module","name":"cloudposse/ssm-parameter-store/aws","version":"0.13.0","file":"main.tf","line":62,"confidence":"exact"},{"from":"cloudposse/terraform-aws-iam-user","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-inspector","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-inspector","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":4,"confidence":"exact"},{"from":"cloudposse/terraform-aws-inspector","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":18,"confidence":"exact"},{"from":"cloudposse/terraform-aws-inspector","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":49,"confidence":"exact"},{"from":"cloudposse/terraform-aws-inspector","to":"cloudposse/terraform-aws-iam-role","kind":"terraform-module","name":"cloudposse/iam-role/aws","version":"0.16.2","file":"main.tf","line":76,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ipam","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ipam","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":162,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ipam","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":173,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ipam","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":184,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ipam","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/organization-admin/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-key-pair","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-kinesis-stream","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-kms-key","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-lakeformation","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-lambda-elasticsearch-cleanup","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-lambda-elasticsearch-cleanup","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":90,"confidence":"exact"},{"from":"cloudposse/terraform-aws-lambda-elasticsearch-cleanup","to":"cloudposse/terraform-external-module-artifact","kind":"terraform-module","name":"cloudposse/module-artifact/external","version":"0.8.0","file":"main.tf","line":99,"confidence":"exact"},{"from":"cloudposse/terraform-aws-lambda-function","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-lambda-function","to":"cloudposse/terraform-aws-cloudwatch-logs","kind":"terraform-module","name":"cloudposse/cloudwatch-logs/aws","version":"0.6.6","file":"main.tf","line":8,"confidence":"exact"},{"from":"cloudposse/terraform-aws-lb-s3-bucket","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-lb-s3-bucket","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":7,"confidence":"exact"},{"from":"cloudposse/terraform-aws-lb-s3-bucket","to":"cloudposse/terraform-aws-s3-log-storage","kind":"terraform-module","name":"cloudposse/s3-log-storage/aws","version":"1.4.3","file":"main.tf","line":78,"confidence":"exact"},{"from":"cloudposse/terraform-aws-macie","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"classification_job.tf","line":1,"confidence":"exact"},{"from":"cloudposse/terraform-aws-macie","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-macie","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"custom_data_identifier.tf","line":1,"confidence":"exact"},{"from":"cloudposse/terraform-aws-macie","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":30,"confidence":"exact"},{"from":"cloudposse/terraform-aws-managed-grafana","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-managed-grafana","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":81,"confidence":"exact"},{"from":"cloudposse/terraform-aws-managed-grafana","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":92,"confidence":"exact"},{"from":"cloudposse/terraform-aws-managed-prometheus","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-managed-prometheus","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"cross-account-role.tf","line":5,"confidence":"exact"},{"from":"cloudposse/terraform-aws-managed-prometheus","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"cross-account-role.tf","line":60,"confidence":"exact"},{"from":"cloudposse/terraform-aws-memorydb","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-mq-broker","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-mq-broker","to":"cloudposse/terraform-aws-security-group","kind":"terraform-module","name":"cloudposse/security-group/aws","version":"2.2.0","file":"sg.tf","line":54,"confidence":"exact"},{"from":"cloudposse/terraform-aws-msk-apache-kafka-cluster","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-msk-apache-kafka-cluster","to":"cloudposse/terraform-aws-security-group","kind":"terraform-module","name":"cloudposse/security-group/aws","version":"2.2.0","file":"main.tf","line":77,"confidence":"exact"},{"from":"cloudposse/terraform-aws-msk-apache-kafka-cluster","to":"cloudposse/terraform-aws-route53-cluster-hostname","kind":"terraform-module","name":"cloudposse/route53-cluster-hostname/aws","version":"0.13.0","file":"main.tf","line":252,"confidence":"exact"},{"from":"cloudposse/terraform-aws-multi-az-subnets","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-multi-az-subnets","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.24.1","file":"private.tf","line":5,"confidence":"exact"},{"from":"cloudposse/terraform-aws-multi-az-subnets","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.24.1","file":"public.tf","line":9,"confidence":"exact"},{"from":"cloudposse/terraform-aws-mwaa","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-mwaa","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":21,"confidence":"exact"},{"from":"cloudposse/terraform-aws-mwaa","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":31,"confidence":"exact"},{"from":"cloudposse/terraform-aws-mwaa","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":41,"confidence":"exact"},{"from":"cloudposse/terraform-aws-mwaa","to":"cloudposse/terraform-aws-security-group","kind":"terraform-module","name":"cloudposse/security-group/aws","version":"1.0.1","file":"main.tf","line":145,"confidence":"exact"},{"from":"cloudposse/terraform-aws-mwaa","to":"cloudposse/terraform-aws-s3-bucket","kind":"terraform-module","name":"cloudposse/s3-bucket/aws","version":"4.0.0","file":"main.tf","line":181,"confidence":"exact"},{"from":"cloudposse/terraform-aws-mwaa","to":"cloudposse/terraform-aws-iam-role","kind":"terraform-module","name":"cloudposse/iam-role/aws","version":"0.20.0","file":"main.tf","line":190,"confidence":"exact"},{"from":"cloudposse/terraform-aws-named-subnets","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-named-subnets","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"private.tf","line":5,"confidence":"exact"},{"from":"cloudposse/terraform-aws-named-subnets","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"public.tf","line":6,"confidence":"exact"},{"from":"cloudposse/terraform-aws-network-firewall","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-nlb","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-nlb","to":"cloudposse/terraform-aws-lb-s3-bucket","kind":"terraform-module","name":"cloudposse/lb-s3-bucket/aws","version":"0.20.0","file":"main.tf","line":60,"confidence":"exact"},{"from":"cloudposse/terraform-aws-nlb","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":83,"confidence":"exact"},{"from":"cloudposse/terraform-aws-nlb","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":105,"confidence":"exact"},{"from":"cloudposse/terraform-aws-nlb","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":147,"confidence":"exact"},{"from":"cloudposse/terraform-aws-organization-access-group","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"github.com/cloudposse/terraform-null-label","version":"tags/0.3.3","file":"main.tf","line":1,"confidence":"exact"},{"from":"cloudposse/terraform-aws-rds","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-rds","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":1,"confidence":"exact"},{"from":"cloudposse/terraform-aws-rds","to":"cloudposse/terraform-aws-route53-cluster-hostname","kind":"terraform-module","name":"cloudposse/route53-cluster-hostname/aws","version":"0.12.2","file":"main.tf","line":250,"confidence":"exact"},{"from":"cloudposse/terraform-aws-rds-cloudwatch-sns-alarms","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"alarms.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-rds-cloudwatch-sns-alarms","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-rds-cloudwatch-sns-alarms","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":5,"confidence":"exact"},{"from":"cloudposse/terraform-aws-rds-cloudwatch-sns-alarms","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":19,"confidence":"exact"},{"from":"cloudposse/terraform-aws-rds-cluster","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-rds-cluster","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"enhanced-monitoring.tf","line":4,"confidence":"exact"},{"from":"cloudposse/terraform-aws-rds-cluster","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":342,"confidence":"exact"},{"from":"cloudposse/terraform-aws-rds-cluster","to":"cloudposse/terraform-aws-route53-cluster-hostname","kind":"terraform-module","name":"cloudposse/route53-cluster-hostname/aws","version":"0.13.0","file":"main.tf","line":469,"confidence":"exact"},{"from":"cloudposse/terraform-aws-rds-cluster","to":"cloudposse/terraform-aws-route53-cluster-hostname","kind":"terraform-module","name":"cloudposse/route53-cluster-hostname/aws","version":"0.13.0","file":"main.tf","line":481,"confidence":"exact"},{"from":"cloudposse/terraform-aws-rds-cluster-instance-group","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"github.com/cloudposse/terraform-null-label","version":"tags/0.3.5","file":"main.tf","line":1,"confidence":"exact"},{"from":"cloudposse/terraform-aws-rds-cluster-instance-group","to":"cloudposse/terraform-aws-route53-cluster-hostname","kind":"terraform-module","name":"github.com/cloudposse/terraform-aws-route53-cluster-hostname","version":"tags/0.2.5","file":"main.tf","line":98,"confidence":"exact"},{"from":"cloudposse/terraform-aws-rds-db-proxy","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-rds-db-proxy","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"iam.tf","line":67,"confidence":"exact"},{"from":"cloudposse/terraform-aws-rds-replica","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"github.com/cloudposse/terraform-null-label","version":"tags/0.3.3","file":"main.tf","line":1,"confidence":"exact"},{"from":"cloudposse/terraform-aws-rds-replica","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"github.com/cloudposse/terraform-null-label","version":"tags/0.3.3","file":"main.tf","line":12,"confidence":"exact"},{"from":"cloudposse/terraform-aws-rds-replica","to":"cloudposse/terraform-aws-route53-cluster-hostname","kind":"terraform-module","name":"github.com/cloudposse/terraform-aws-route53-cluster-hostname","version":"tags/0.2.5","file":"main.tf","line":105,"confidence":"exact"},{"from":"cloudposse/terraform-aws-redshift-cluster","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-refarch-utils","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-route53-alias","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-route53-cluster-hostname","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-route53-cluster-zone","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-route53-resolver-dns-firewall","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-s3-bucket","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-s3-bucket","to":"cloudposse/terraform-aws-iam-s3-user","kind":"terraform-module","name":"cloudposse/iam-s3-user/aws","version":"1.2.0","file":"main.tf","line":352,"confidence":"exact"},{"from":"cloudposse/terraform-aws-s3-log-storage","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-s3-log-storage","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":6,"confidence":"exact"},{"from":"cloudposse/terraform-aws-s3-log-storage","to":"cloudposse/terraform-aws-s3-bucket","kind":"terraform-module","name":"cloudposse/s3-bucket/aws","version":"4.15.0","file":"main.tf","line":18,"confidence":"exact"},{"from":"cloudposse/terraform-aws-s3-website","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-s3-website","to":"cloudposse/terraform-aws-s3-log-storage","kind":"terraform-module","name":"cloudposse/s3-log-storage/aws","version":"1.4.2","file":"main.tf","line":21,"confidence":"exact"},{"from":"cloudposse/terraform-aws-s3-website","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":36,"confidence":"exact"},{"from":"cloudposse/terraform-aws-s3-website","to":"cloudposse/terraform-aws-route53-alias","kind":"terraform-module","name":"cloudposse/route53-alias/aws","version":"0.13.0","file":"main.tf","line":309,"confidence":"exact"},{"from":"cloudposse/terraform-aws-security-group","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-security-hub","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-security-hub","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"eventbridge.tf","line":8,"confidence":"exact"},{"from":"cloudposse/terraform-aws-security-hub","to":"cloudposse/terraform-aws-kms-key","kind":"terraform-module","name":"cloudposse/kms-key/aws","version":"0.12.2","file":"eventbridge.tf","line":17,"confidence":"exact"},{"from":"cloudposse/terraform-aws-security-hub","to":"cloudposse/terraform-aws-sns-topic","kind":"terraform-module","name":"cloudposse/sns-topic/aws","version":"0.21.0","file":"eventbridge.tf","line":64,"confidence":"exact"},{"from":"cloudposse/terraform-aws-security-hub","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"eventbridge.tf","line":79,"confidence":"exact"},{"from":"cloudposse/terraform-aws-security-hub","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.24.1","file":"modules/control-disablements/context.tf","line":21,"confidence":"exact"},{"from":"cloudposse/terraform-aws-service-control-policies","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-service-quotas","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ses","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ses","to":"cloudposse/terraform-aws-iam-system-user","kind":"terraform-module","name":"cloudposse/iam-system-user/aws","version":"1.2.1","file":"main.tf","line":117,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ses-lambda-forwarder","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ses-lambda-forwarder","to":"cloudposse/terraform-external-module-artifact","kind":"terraform-module","name":"cloudposse/module-artifact/external","version":"0.8.0","file":"lambda.tf","line":69,"confidence":"exact"},{"from":"cloudposse/terraform-aws-sns-cloudwatch-sns-alarms","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-sns-lambda-notify-slack","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-sns-lambda-notify-slack","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":1,"confidence":"exact"},{"from":"cloudposse/terraform-aws-sns-topic","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ssm-iam-role","to":"cloudposse/terraform-terraform-label","kind":"terraform-module","name":"github.com/cloudposse/terraform-terraform-label","version":"0.1.3","file":"main.tf","line":1,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ssm-parameter-store","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ssm-patch-manager","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ssm-patch-manager","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":13,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ssm-patch-manager","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":103,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ssm-patch-manager","to":"cloudposse/terraform-aws-s3-bucket","kind":"terraform-module","name":"cloudposse/s3-bucket/aws","version":"4.0.1","file":"ssm_log_bucket.tf","line":32,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ssm-tls-self-signed-cert","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-ssm-tls-ssh-key-pair","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-sso","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/account-assignments/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-sso","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/permission-sets/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-step-functions","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-step-functions","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"logs.tf","line":8,"confidence":"exact"},{"from":"cloudposse/terraform-aws-tfstate-backend","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-tfstate-backend","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":48,"confidence":"exact"},{"from":"cloudposse/terraform-aws-tfstate-backend","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":270,"confidence":"exact"},{"from":"cloudposse/terraform-aws-tfstate-backend","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"replication.tf","line":11,"confidence":"exact"},{"from":"cloudposse/terraform-aws-transfer-sftp","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-transfer-sftp","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":126,"confidence":"exact"},{"from":"cloudposse/terraform-aws-transfer-sftp","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":202,"confidence":"exact"},{"from":"cloudposse/terraform-aws-transit-gateway","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-utils","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-vpc","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-vpc","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-vpc","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":30,"confidence":"exact"},{"from":"cloudposse/terraform-aws-vpc","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":39,"confidence":"exact"},{"from":"cloudposse/terraform-aws-vpc","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/vpc-endpoints/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-vpc","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/vpc-endpoints/main.tf","line":58,"confidence":"exact"},{"from":"cloudposse/terraform-aws-vpc","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/vpc-endpoints/main.tf","line":68,"confidence":"exact"},{"from":"cloudposse/terraform-aws-vpc-flow-logs-s3-bucket","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-vpc-flow-logs-s3-bucket","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"main.tf","line":29,"confidence":"exact"},{"from":"cloudposse/terraform-aws-vpc-flow-logs-s3-bucket","to":"cloudposse/terraform-aws-kms-key","kind":"terraform-module","name":"cloudposse/kms-key/aws","version":"0.12.2","file":"main.tf","line":288,"confidence":"exact"},{"from":"cloudposse/terraform-aws-vpc-flow-logs-s3-bucket","to":"cloudposse/terraform-aws-s3-log-storage","kind":"terraform-module","name":"cloudposse/s3-log-storage/aws","version":"2.0.0","file":"main.tf","line":307,"confidence":"exact"},{"from":"cloudposse/terraform-aws-vpc-peering","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-vpc-peering-multi-account","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"accepter.tf","line":1,"confidence":"exact"},{"from":"cloudposse/terraform-aws-vpc-peering-multi-account","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-vpc-peering-multi-account","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"requester.tf","line":25,"confidence":"exact"},{"from":"cloudposse/terraform-aws-vpn-connection","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-vpn-connection","to":"cloudposse/terraform-aws-cloudwatch-logs","kind":"terraform-module","name":"cloudposse/cloudwatch-logs/aws","version":"0.6.9","file":"main.tf","line":50,"confidence":"exact"},{"from":"cloudposse/terraform-aws-waf","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-aws-waf","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"ipset.tf","line":14,"confidence":"exact"},{"from":"cloudposse/terraform-cloudflare-waf-rulesets","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-cloudflare-zone","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-datadog-platform","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-datadog-platform","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/child_organization/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-datadog-platform","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/monitors/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-datadog-platform","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/organization_settings/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-datadog-platform","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/permissions/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-datadog-platform","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/roles/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-datadog-platform","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/slo/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-datadog-platform","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/synthetics/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-example-module","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-external-module-artifact","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-github-repository","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-github-repository-webhooks","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-module-test","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-opsgenie-incident-management","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-opsgenie-incident-management","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/alert_policy/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-opsgenie-incident-management","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/api_integration/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-opsgenie-incident-management","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/config/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-opsgenie-incident-management","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/escalation/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-opsgenie-incident-management","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/integration_action/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-opsgenie-incident-management","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/notification_policy/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-opsgenie-incident-management","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/schedule/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-opsgenie-incident-management","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/service_incident_rule/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-opsgenie-incident-management","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/service/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-opsgenie-incident-management","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/team_routing_rule/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-opsgenie-incident-management","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/team/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-opsgenie-incident-management","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/user/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-spacelift-cloud-infrastructure-automation","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/spacelift-policy/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-spacelift-cloud-infrastructure-automation","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/spacelift-space/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-spacelift-cloud-infrastructure-automation","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/spacelift-stack/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-spacelift-cloud-infrastructure-automation","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/spacelift-stacks-from-atmos-config/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-spacelift-cloud-infrastructure-automation","to":"cloudposse/terraform-yaml-stack-config","kind":"terraform-module","name":"cloudposse/stack-config/yaml","version":"1.8.0","file":"modules/spacelift-stacks-from-atmos-config/main.tf","line":2,"confidence":"exact"},{"from":"cloudposse/terraform-tls-ssh-key-pair","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-yaml-config","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-yaml-config","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/yaml-config/context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-yaml-stack-config","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"context.tf","line":23,"confidence":"exact"},{"from":"cloudposse/terraform-yaml-stack-config","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/backend/context-always.tf","line":44,"confidence":"exact"},{"from":"cloudposse/terraform-yaml-stack-config","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/env/context-always.tf","line":44,"confidence":"exact"},{"from":"cloudposse/terraform-yaml-stack-config","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/remote-state/context-always.tf","line":44,"confidence":"exact"},{"from":"cloudposse/terraform-yaml-stack-config","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/settings/context-always.tf","line":44,"confidence":"exact"},{"from":"cloudposse/terraform-yaml-stack-config","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/spacelift/context-always.tf","line":44,"confidence":"exact"},{"from":"cloudposse/terraform-yaml-stack-config","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/stack/context-always.tf","line":44,"confidence":"exact"},{"from":"cloudposse/terraform-yaml-stack-config","to":"cloudposse/terraform-null-label","kind":"terraform-module","name":"cloudposse/label/null","version":"0.25.0","file":"modules/vars/context-always.tf","line":44,"confidence":"exact"}],"drift":[{"kind":"terraform-module","name":"cloudposse/label/null","producers":["cloudposse/terraform-null-label"],"versions":[{"version":"0.25.0","repos":["cloudposse/terraform-aws-acm-request-certificate","cloudposse/terraform-aws-agentcore","cloudposse/terraform-aws-alb","cloudposse/terraform-aws-alb-ingress","cloudposse/terraform-aws-alb-target-group-cloudwatch-sns-alarms","cloudposse/terraform-aws-amplify-app","cloudposse/terraform-aws-api-gateway","cloudposse/terraform-aws-athena","cloudposse/terraform-aws-backup","cloudposse/terraform-aws-bedrock","cloudposse/terraform-aws-budgets","cloudposse/terraform-aws-cicd","cloudposse/terraform-aws-cloudformation-stack","cloudposse/terraform-aws-cloudfront-cdn","cloudposse/terraform-aws-cloudfront-s3-cdn","cloudposse/terraform-aws-cloudtrail","cloudposse/terraform-aws-cloudtrail-cloudwatch-alarms","cloudposse/terraform-aws-cloudtrail-s3-bucket","cloudposse/terraform-aws-cloudwatch-events","cloudposse/terraform-aws-cloudwatch-logs","cloudposse/terraform-aws-code-deploy","cloudposse/terraform-aws-codeartifact","cloudposse/terraform-aws-codebuild","cloudposse/terraform-aws-config","cloudposse/terraform-aws-config-storage","cloudposse/terraform-aws-datadog-integration","cloudposse/terraform-aws-datadog-lambda-forwarder","cloudposse/terraform-aws-dms","cloudposse/terraform-aws-documentdb-cluster","cloudposse/terraform-aws-dynamic-subnets","cloudposse/terraform-aws-dynamodb","cloudposse/terraform-aws-dynamodb-autoscaler","cloudposse/terraform-aws-ec2-admin-server","cloudposse/terraform-aws-ec2-autoscale-group","cloudposse/terraform-aws-ec2-bastion-server","cloudposse/terraform-aws-ec2-client-vpn","cloudposse/terraform-aws-ec2-instance","cloudposse/terraform-aws-ec2-instance-group","cloudposse/terraform-aws-ecr","cloudposse/terraform-aws-ecr-public","cloudposse/terraform-aws-ecs-alb-service-task","cloudposse/terraform-aws-ecs-cloudwatch-autoscaling","cloudposse/terraform-aws-ecs-cloudwatch-sns-alarms","cloudposse/terraform-aws-ecs-cluster","cloudposse/terraform-aws-ecs-codepipeline","cloudposse/terraform-aws-ecs-web-app","cloudposse/terraform-aws-efs","cloudposse/terraform-aws-eks-cluster","cloudposse/terraform-aws-eks-fargate-profile","cloudposse/terraform-aws-eks-iam-role","cloudposse/terraform-aws-eks-node-group","cloudposse/terraform-aws-eks-workers","cloudposse/terraform-aws-elastic-beanstalk-application","cloudposse/terraform-aws-elastic-beanstalk-environment","cloudposse/terraform-aws-elasticache-memcached","cloudposse/terraform-aws-elasticache-redis","cloudposse/terraform-aws-elasticsearch","cloudposse/terraform-aws-emr-cluster","cloudposse/terraform-aws-firewall-manager","cloudposse/terraform-aws-github-action-token-rotator","cloudposse/terraform-aws-global-accelerator","cloudposse/terraform-aws-glue","cloudposse/terraform-aws-guardduty","cloudposse/terraform-aws-health-events","cloudposse/terraform-aws-helm-release","cloudposse/terraform-aws-iam-account-settings","cloudposse/terraform-aws-iam-policy","cloudposse/terraform-aws-iam-role","cloudposse/terraform-aws-iam-s3-user","cloudposse/terraform-aws-iam-system-user","cloudposse/terraform-aws-iam-user","cloudposse/terraform-aws-inspector","cloudposse/terraform-aws-ipam","cloudposse/terraform-aws-key-pair","cloudposse/terraform-aws-kinesis-stream","cloudposse/terraform-aws-kms-key","cloudposse/terraform-aws-lakeformation","cloudposse/terraform-aws-lambda-elasticsearch-cleanup","cloudposse/terraform-aws-lambda-function","cloudposse/terraform-aws-lb-s3-bucket","cloudposse/terraform-aws-macie","cloudposse/terraform-aws-managed-grafana","cloudposse/terraform-aws-managed-prometheus","cloudposse/terraform-aws-memorydb","cloudposse/terraform-aws-mq-broker","cloudposse/terraform-aws-msk-apache-kafka-cluster","cloudposse/terraform-aws-multi-az-subnets","cloudposse/terraform-aws-mwaa","cloudposse/terraform-aws-named-subnets","cloudposse/terraform-aws-network-firewall","cloudposse/terraform-aws-nlb","cloudposse/terraform-aws-rds","cloudposse/terraform-aws-rds-cloudwatch-sns-alarms","cloudposse/terraform-aws-rds-cluster","cloudposse/terraform-aws-rds-db-proxy","cloudposse/terraform-aws-redshift-cluster","cloudposse/terraform-aws-refarch-utils","cloudposse/terraform-aws-route53-alias","cloudposse/terraform-aws-route53-cluster-hostname","cloudposse/terraform-aws-route53-cluster-zone","cloudposse/terraform-aws-route53-resolver-dns-firewall","cloudposse/terraform-aws-s3-bucket","cloudposse/terraform-aws-s3-log-storage","cloudposse/terraform-aws-s3-website","cloudposse/terraform-aws-security-group","cloudposse/terraform-aws-security-hub","cloudposse/terraform-aws-service-control-policies","cloudposse/terraform-aws-service-quotas","cloudposse/terraform-aws-ses","cloudposse/terraform-aws-ses-lambda-forwarder","cloudposse/terraform-aws-sns-cloudwatch-sns-alarms","cloudposse/terraform-aws-sns-lambda-notify-slack","cloudposse/terraform-aws-sns-topic","cloudposse/terraform-aws-ssm-parameter-store","cloudposse/terraform-aws-ssm-patch-manager","cloudposse/terraform-aws-ssm-tls-self-signed-cert","cloudposse/terraform-aws-ssm-tls-ssh-key-pair","cloudposse/terraform-aws-sso","cloudposse/terraform-aws-step-functions","cloudposse/terraform-aws-tfstate-backend","cloudposse/terraform-aws-transfer-sftp","cloudposse/terraform-aws-transit-gateway","cloudposse/terraform-aws-utils","cloudposse/terraform-aws-vpc","cloudposse/terraform-aws-vpc-flow-logs-s3-bucket","cloudposse/terraform-aws-vpc-peering","cloudposse/terraform-aws-vpc-peering-multi-account","cloudposse/terraform-aws-vpn-connection","cloudposse/terraform-aws-waf","cloudposse/terraform-cloudflare-waf-rulesets","cloudposse/terraform-cloudflare-zone","cloudposse/terraform-datadog-platform","cloudposse/terraform-example-module","cloudposse/terraform-external-module-artifact","cloudposse/terraform-github-repository","cloudposse/terraform-github-repository-webhooks","cloudposse/terraform-module-test","cloudposse/terraform-opsgenie-incident-management","cloudposse/terraform-spacelift-cloud-infrastructure-automation","cloudposse/terraform-tls-ssh-key-pair","cloudposse/terraform-yaml-config","cloudposse/terraform-yaml-stack-config"]},{"version":"0.24.1","repos":["cloudposse/terraform-aws-multi-az-subnets","cloudposse/terraform-aws-security-hub"]}]},{"kind":"terraform-module","name":"cloudposse/route53-cluster-hostname/aws","producers":["cloudposse/terraform-aws-route53-cluster-hostname"],"versions":[{"version":"0.13.0","repos":["cloudposse/terraform-aws-documentdb-cluster","cloudposse/terraform-aws-ec2-admin-server","cloudposse/terraform-aws-efs","cloudposse/terraform-aws-elasticache-memcached","cloudposse/terraform-aws-elasticache-redis","cloudposse/terraform-aws-elasticsearch","cloudposse/terraform-aws-msk-apache-kafka-cluster","cloudposse/terraform-aws-rds-cluster"]},{"version":"0.12.2","repos":["cloudposse/terraform-aws-ec2-bastion-server","cloudposse/terraform-aws-elastic-beanstalk-environment","cloudposse/terraform-aws-emr-cluster","cloudposse/terraform-aws-rds"]}]},{"kind":"terraform-module","name":"cloudposse/security-group/aws","producers":["cloudposse/terraform-aws-security-group"],"versions":[{"version":"2.2.0","repos":["cloudposse/terraform-aws-ec2-client-vpn","cloudposse/terraform-aws-ec2-instance-group","cloudposse/terraform-aws-efs","cloudposse/terraform-aws-eks-node-group","cloudposse/terraform-aws-elasticache-memcached","cloudposse/terraform-aws-elasticache-redis","cloudposse/terraform-aws-mq-broker","cloudposse/terraform-aws-msk-apache-kafka-cluster"]},{"version":"1.0.1","repos":["cloudposse/terraform-aws-elastic-beanstalk-environment","cloudposse/terraform-aws-mwaa"]},{"version":"0.3.3","repos":["cloudposse/terraform-aws-ec2-bastion-server","cloudposse/terraform-aws-ec2-instance"]}]},{"kind":"terraform-module","name":"cloudposse/iam-role/aws","producers":["cloudposse/terraform-aws-iam-role"],"versions":[{"version":"1.0.0","repos":["cloudposse/terraform-aws-config"]},{"version":"0.20.0","repos":["cloudposse/terraform-aws-mwaa"]},{"version":"0.19.0","repos":["cloudposse/terraform-aws-api-gateway","cloudposse/terraform-aws-cloudfront-s3-cdn","cloudposse/terraform-aws-cloudwatch-logs"]},{"version":"0.18.0","repos":["cloudposse/terraform-aws-amplify-app"]},{"version":"0.16.2","repos":["cloudposse/terraform-aws-inspector"]}]},{"kind":"terraform-module","name":"cloudposse/s3-log-storage/aws","producers":["cloudposse/terraform-aws-s3-log-storage"],"versions":[{"version":"2.1.0","repos":["cloudposse/terraform-aws-cloudtrail-s3-bucket"]},{"version":"2.0.0","repos":["cloudposse/terraform-aws-cloudfront-cdn","cloudposse/terraform-aws-vpc-flow-logs-s3-bucket"]},{"version":"1.4.5","repos":["cloudposse/terraform-aws-cloudfront-s3-cdn"]},{"version":"1.4.3","repos":["cloudposse/terraform-aws-lb-s3-bucket"]},{"version":"1.4.2","repos":["cloudposse/terraform-aws-s3-website"]},{"version":"1.4.1","repos":["cloudposse/terraform-aws-config-storage"]}]},{"kind":"terraform-module","name":"github.com/cloudposse/terraform-null-label","producers":["cloudposse/terraform-null-label"],"versions":[{"version":"tags/0.5.3","repos":["cloudposse/terraform-aws-cloudformation-stack-set"]},{"version":"tags/0.3.5","repos":["cloudposse/terraform-aws-rds-cluster-instance-group"]},{"version":"tags/0.3.3","repos":["cloudposse/terraform-aws-iam-assumed-roles","cloudposse/terraform-aws-organization-access-group","cloudposse/terraform-aws-rds-replica"]},{"version":"tags/0.3.1","repos":["cloudposse/terraform-aws-cloudwatch-flow-logs","cloudposse/terraform-aws-efs-backup"]}]},{"kind":"terraform-module","name":"cloudposse/sns-topic/aws","producers":["cloudposse/terraform-aws-sns-topic"],"versions":[{"version":"1.2.0","repos":["cloudposse/terraform-aws-config"]},{"version":"0.21.0","repos":["cloudposse/terraform-aws-budgets","cloudposse/terraform-aws-code-deploy","cloudposse/terraform-aws-security-hub"]},{"version":"0.20.1","repos":["cloudposse/terraform-aws-guardduty","cloudposse/terraform-aws-health-events"]}]},{"kind":"terraform-module","name":"cloudposse/kms-key/aws","producers":["cloudposse/terraform-aws-kms-key"],"versions":[{"version":"0.12.2","repos":["cloudposse/terraform-aws-security-hub","cloudposse/terraform-aws-vpc-flow-logs-s3-bucket"]},{"version":"0.12.1","repos":["cloudposse/terraform-aws-budgets","cloudposse/terraform-aws-health-events"]},{"version":"0.10.0","repos":["cloudposse/terraform-aws-cloudtrail-cloudwatch-alarms"]}]},{"kind":"terraform-module","name":"cloudposse/s3-bucket/aws","producers":["cloudposse/terraform-aws-s3-bucket"],"versions":[{"version":"4.15.0","repos":["cloudposse/terraform-aws-s3-log-storage"]},{"version":"4.3.0","repos":["cloudposse/terraform-aws-firewall-manager"]},{"version":"4.2.0","repos":["cloudposse/terraform-aws-datadog-lambda-forwarder"]},{"version":"4.0.1","repos":["cloudposse/terraform-aws-ssm-patch-manager"]},{"version":"4.0.0","repos":["cloudposse/terraform-aws-mwaa"]}]},{"kind":"terraform-module","name":"cloudposse/cloudwatch-logs/aws","producers":["cloudposse/terraform-aws-cloudwatch-logs"],"versions":[{"version":"0.6.9","repos":["cloudposse/terraform-aws-api-gateway","cloudposse/terraform-aws-vpn-connection"]},{"version":"0.6.8","repos":["cloudposse/terraform-aws-ec2-client-vpn"]},{"version":"0.6.6","repos":["cloudposse/terraform-aws-lambda-function"]}]},{"kind":"terraform-module","name":"cloudposse/lb-s3-bucket/aws","producers":["cloudposse/terraform-aws-lb-s3-bucket"],"versions":[{"version":"0.20.0","repos":["cloudposse/terraform-aws-elastic-beanstalk-environment","cloudposse/terraform-aws-nlb"]},{"version":"0.19.0","repos":["cloudposse/terraform-aws-alb"]}]},{"kind":"terraform-module","name":"cloudposse/ssm-parameter-store/aws","producers":["cloudposse/terraform-aws-ssm-parameter-store"],"versions":[{"version":"0.13.0","repos":["cloudposse/terraform-aws-documentdb-cluster","cloudposse/terraform-aws-iam-system-user"]},{"version":"0.10.0","repos":["cloudposse/terraform-aws-github-action-token-rotator"]}]},{"kind":"terraform-module","name":"cloudposse/utils/aws","producers":["cloudposse/terraform-aws-utils"],"versions":[{"version":"1.4.0","repos":["cloudposse/terraform-aws-config","cloudposse/terraform-aws-dynamic-subnets"]},{"version":"unpinned","repos":["cloudposse/terraform-aws-github-action-token-rotator"]}]},{"kind":"terraform-module","name":"cloudposse/codebuild/aws","producers":["cloudposse/terraform-aws-codebuild"],"versions":[{"version":"2.0.2","repos":["cloudposse/terraform-aws-ecs-codepipeline"]},{"version":"2.0.1","repos":["cloudposse/terraform-aws-cicd"]}]},{"kind":"terraform-module","name":"cloudposse/ec2-autoscale-group/aws","producers":["cloudposse/terraform-aws-ec2-autoscale-group"],"versions":[{"version":"0.41.1","repos":["cloudposse/terraform-aws-ecs-cluster"]},{"version":"0.40.0","repos":["cloudposse/terraform-aws-eks-workers"]}]},{"kind":"terraform-module","name":"cloudposse/repository-webhooks/github","producers":["cloudposse/terraform-github-repository-webhooks"],"versions":[{"version":"0.14.0","repos":["cloudposse/terraform-aws-ecs-codepipeline"]},{"version":"0.12.1","repos":["cloudposse/terraform-aws-cicd"]}]},{"kind":"workflow","name":"cloudposse/.github/.github/workflows/shared-terraform-module.yml","producers":[],"versions":[{"version":"use-atmos-to-generate-readme","repos":["cloudposse/terraform-module-test"]},{"version":"main","repos":["cloudposse/terraform-artifactory-kv-store","cloudposse/terraform-aws-acm-request-certificate","cloudposse/terraform-aws-agentcore","cloudposse/terraform-aws-alb","cloudposse/terraform-aws-alb-ingress","cloudposse/terraform-aws-alb-target-group-cloudwatch-sns-alarms","cloudposse/terraform-aws-amplify-app","cloudposse/terraform-aws-api-gateway","cloudposse/terraform-aws-athena","cloudposse/terraform-aws-backup","cloudposse/terraform-aws-bedrock","cloudposse/terraform-aws-budgets","cloudposse/terraform-aws-cicd","cloudposse/terraform-aws-cloudformation-stack","cloudposse/terraform-aws-cloudformation-stack-set","cloudposse/terraform-aws-cloudfront-cdn","cloudposse/terraform-aws-cloudfront-s3-cdn","cloudposse/terraform-aws-cloudtrail","cloudposse/terraform-aws-cloudtrail-cloudwatch-alarms","cloudposse/terraform-aws-cloudtrail-s3-bucket","cloudposse/terraform-aws-cloudwatch-events","cloudposse/terraform-aws-cloudwatch-flow-logs","cloudposse/terraform-aws-cloudwatch-logs","cloudposse/terraform-aws-code-deploy","cloudposse/terraform-aws-codeartifact","cloudposse/terraform-aws-codebuild","cloudposse/terraform-aws-config","cloudposse/terraform-aws-config-storage","cloudposse/terraform-aws-datadog-integration","cloudposse/terraform-aws-datadog-lambda-forwarder","cloudposse/terraform-aws-dms","cloudposse/terraform-aws-documentdb-cluster","cloudposse/terraform-aws-dynamic-subnets","cloudposse/terraform-aws-dynamodb","cloudposse/terraform-aws-dynamodb-autoscaler","cloudposse/terraform-aws-ec2-admin-server","cloudposse/terraform-aws-ec2-ami-snapshot","cloudposse/terraform-aws-ec2-autoscale-group","cloudposse/terraform-aws-ec2-bastion-server","cloudposse/terraform-aws-ec2-client-vpn","cloudposse/terraform-aws-ec2-instance","cloudposse/terraform-aws-ec2-instance-group","cloudposse/terraform-aws-ecr","cloudposse/terraform-aws-ecr-public","cloudposse/terraform-aws-ecs-alb-service-task","cloudposse/terraform-aws-ecs-cloudwatch-autoscaling","cloudposse/terraform-aws-ecs-cloudwatch-sns-alarms","cloudposse/terraform-aws-ecs-cluster","cloudposse/terraform-aws-ecs-codepipeline","cloudposse/terraform-aws-ecs-container-definition","cloudposse/terraform-aws-ecs-web-app","cloudposse/terraform-aws-efs","cloudposse/terraform-aws-efs-backup","cloudposse/terraform-aws-efs-cloudwatch-sns-alarms","cloudposse/terraform-aws-eks-cluster","cloudposse/terraform-aws-eks-fargate-profile","cloudposse/terraform-aws-eks-iam-role","cloudposse/terraform-aws-eks-node-group","cloudposse/terraform-aws-eks-workers","cloudposse/terraform-aws-elastic-beanstalk-application","cloudposse/terraform-aws-elastic-beanstalk-environment","cloudposse/terraform-aws-elasticache-memcached","cloudposse/terraform-aws-elasticache-redis","cloudposse/terraform-aws-elasticsearch","cloudposse/terraform-aws-emr-cluster","cloudposse/terraform-aws-firewall-manager","cloudposse/terraform-aws-github-action-token-rotator","cloudposse/terraform-aws-global-accelerator","cloudposse/terraform-aws-glue","cloudposse/terraform-aws-guardduty","cloudposse/terraform-aws-health-events","cloudposse/terraform-aws-helm-release","cloudposse/terraform-aws-iam-account-settings","cloudposse/terraform-aws-iam-assumed-roles","cloudposse/terraform-aws-iam-policy","cloudposse/terraform-aws-iam-role","cloudposse/terraform-aws-iam-s3-user","cloudposse/terraform-aws-iam-system-user","cloudposse/terraform-aws-iam-user","cloudposse/terraform-aws-inspector","cloudposse/terraform-aws-ipam","cloudposse/terraform-aws-key-pair","cloudposse/terraform-aws-kinesis-stream","cloudposse/terraform-aws-kms-key","cloudposse/terraform-aws-lakeformation","cloudposse/terraform-aws-lambda-elasticsearch-cleanup","cloudposse/terraform-aws-lambda-function","cloudposse/terraform-aws-lb-s3-bucket","cloudposse/terraform-aws-macie","cloudposse/terraform-aws-managed-grafana","cloudposse/terraform-aws-managed-prometheus","cloudposse/terraform-aws-memorydb","cloudposse/terraform-aws-mq-broker","cloudposse/terraform-aws-msk-apache-kafka-cluster","cloudposse/terraform-aws-multi-az-subnets","cloudposse/terraform-aws-mwaa","cloudposse/terraform-aws-named-subnets","cloudposse/terraform-aws-network-firewall","cloudposse/terraform-aws-nlb","cloudposse/terraform-aws-organization-access-group","cloudposse/terraform-aws-organization-access-role","cloudposse/terraform-aws-rds","cloudposse/terraform-aws-rds-cloudwatch-sns-alarms","cloudposse/terraform-aws-rds-cluster","cloudposse/terraform-aws-rds-cluster-instance-group","cloudposse/terraform-aws-rds-db-proxy","cloudposse/terraform-aws-rds-replica","cloudposse/terraform-aws-redshift-cluster","cloudposse/terraform-aws-refarch-utils","cloudposse/terraform-aws-route53-alias","cloudposse/terraform-aws-route53-cluster-hostname","cloudposse/terraform-aws-route53-cluster-zone","cloudposse/terraform-aws-route53-resolver-dns-firewall","cloudposse/terraform-aws-s3-bucket","cloudposse/terraform-aws-s3-log-storage","cloudposse/terraform-aws-s3-website","cloudposse/terraform-aws-security-group","cloudposse/terraform-aws-security-hub","cloudposse/terraform-aws-service-control-policies","cloudposse/terraform-aws-service-quotas","cloudposse/terraform-aws-ses","cloudposse/terraform-aws-ses-lambda-forwarder","cloudposse/terraform-aws-sns-cloudwatch-sns-alarms","cloudposse/terraform-aws-sns-lambda-notify-slack","cloudposse/terraform-aws-sns-topic","cloudposse/terraform-aws-ssm-iam-role","cloudposse/terraform-aws-ssm-parameter-chamber-reader","cloudposse/terraform-aws-ssm-parameter-store","cloudposse/terraform-aws-ssm-parameter-store-policy-documents","cloudposse/terraform-aws-ssm-patch-manager","cloudposse/terraform-aws-ssm-tls-self-signed-cert","cloudposse/terraform-aws-ssm-tls-ssh-key-pair","cloudposse/terraform-aws-sso","cloudposse/terraform-aws-step-functions","cloudposse/terraform-aws-tfstate-backend","cloudposse/terraform-aws-transfer-sftp","cloudposse/terraform-aws-transit-gateway","cloudposse/terraform-aws-utils","cloudposse/terraform-aws-vpc","cloudposse/terraform-aws-vpc-flow-logs-s3-bucket","cloudposse/terraform-aws-vpc-peering","cloudposse/terraform-aws-vpc-peering-multi-account","cloudposse/terraform-aws-vpn-connection","cloudposse/terraform-aws-waf","cloudposse/terraform-cloudflare-waf-rulesets","cloudposse/terraform-cloudflare-zone","cloudposse/terraform-datadog-platform","cloudposse/terraform-example-module","cloudposse/terraform-external-module-artifact","cloudposse/terraform-github-repository","cloudposse/terraform-github-repository-webhooks","cloudposse/terraform-null-label","cloudposse/terraform-opsgenie-incident-management","cloudposse/terraform-spacelift-cloud-infrastructure-automation","cloudposse/terraform-terraform-label","cloudposse/terraform-tls-ssh-key-pair","cloudposse/terraform-yaml-config","cloudposse/terraform-yaml-stack-config"]}]},{"kind":"action","name":"actions/checkout","producers":[],"versions":[{"version":"692973e3d937129bcbf40652eb9f2f61becf3332","repos":["cloudposse/terraform-module-test"]},{"version":"11bd71901bbe5b1630ceea73d27597364c9af683","repos":["cloudposse/terraform-provider-awsutils","cloudposse/terraform-provider-context","cloudposse/terraform-provider-utils"]},{"version":"v5","repos":["cloudposse/terraform-provider-utils"]},{"version":"v4","repos":["cloudposse/terraform-module-test","cloudposse/terraform-provider-awsutils","cloudposse/terraform-provider-context","cloudposse/terraform-provider-utils"]},{"version":"3d3c42e5aac5ba805825da76410c181273ba90b1","repos":["cloudposse/terraform-aws-ses-lambda-forwarder"]},{"version":"v2","repos":["cloudposse/terraform-aws-lambda-elasticsearch-cleanup","cloudposse/terraform-aws-mwaa"]}]},{"kind":"action","name":"github/codeql-action/upload-sarif","producers":[],"versions":[{"version":"4dd16135b69a43b6c8efb853346f8437d92d3c93","repos":["cloudposse/terraform-module-test"]},{"version":"v3","repos":["cloudposse/terraform-provider-awsutils","cloudposse/terraform-provider-context","cloudposse/terraform-provider-utils"]}]},{"kind":"action","name":"mszostok/codeowners-validator","producers":[],"versions":[{"version":"v0.7.4","repos":["cloudposse/terraform-provider-context"]},{"version":"v0.7.1","repos":["cloudposse/terraform-aws-mwaa","cloudposse/terraform-provider-awsutils","cloudposse/terraform-provider-utils"]}]},{"kind":"action","name":"actions/setup-go","producers":[],"versions":[{"version":"v5","repos":["cloudposse/terraform-provider-awsutils","cloudposse/terraform-provider-context","cloudposse/terraform-provider-utils"]},{"version":"f111f3307d8850f501ac008e886eec1fd1932a34","repos":["cloudposse/terraform-provider-awsutils","cloudposse/terraform-provider-context","cloudposse/terraform-provider-utils"]}]},{"kind":"go","name":"github.com/hashicorp/terraform-plugin-docs","producers":[],"versions":[{"version":"v0.25.0","repos":["cloudposse/terraform-provider-utils"]},{"version":"v0.19.4","repos":["cloudposse/terraform-provider-context"]},{"version":"v0.13.0","repos":["cloudposse/terraform-provider-awsutils"]}]},{"kind":"go","name":"github.com/hashicorp/terraform-plugin-framework","producers":[],"versions":[{"version":"v1.14.1","repos":["cloudposse/terraform-provider-context"]},{"version":"v0.11.1","repos":["cloudposse/terraform-provider-awsutils"]}]},{"kind":"go","name":"github.com/hashicorp/terraform-plugin-go","producers":[],"versions":[{"version":"v0.26.0","repos":["cloudposse/terraform-provider-context"]},{"version":"v0.14.0","repos":["cloudposse/terraform-provider-awsutils"]}]},{"kind":"go","name":"github.com/hashicorp/terraform-plugin-log","producers":[],"versions":[{"version":"v0.9.0","repos":["cloudposse/terraform-provider-context"]},{"version":"v0.7.0","repos":["cloudposse/terraform-provider-awsutils"]}]},{"kind":"go","name":"github.com/hashicorp/terraform-plugin-sdk/v2","producers":[],"versions":[{"version":"v2.40.1","repos":["cloudposse/terraform-provider-utils"]},{"version":"v2.21.0","repos":["cloudposse/terraform-provider-awsutils"]}]},{"kind":"go","name":"github.com/stretchr/testify","producers":[],"versions":[{"version":"v1.12.1","repos":["cloudposse/terraform-provider-utils"]},{"version":"v1.10.0","repos":["cloudposse/terraform-provider-context"]}]},{"kind":"action","name":"actions/upload-artifact","producers":[],"versions":[{"version":"50769540e7f4bd5e21e526ee35c689e35e0d6874","repos":["cloudposse/terraform-module-test"]},{"version":"v4","repos":["cloudposse/terraform-module-test"]}]}]}</script>
+<script>
+(() => {
+  'use strict';
+
+  const data = JSON.parse(document.getElementById('ripplemap-data').textContent);
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const KIND_LABEL = { image: 'image', 'terraform-module': 'module', workflow: 'workflow', action: 'action', npm: 'npm', 'helm-chart': 'chart', go: 'go', python: 'python' };
+  const MAX_REFS = 3;
+
+  const $ = (id) => document.getElementById(id);
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  const short = (id) => (data.owner && id.startsWith(data.owner + '/') ? id.slice(data.owner.length + 1) : id);
+  const shortVersion = (v) => (/^[0-9a-f]{40}$/.test(v) ? v.slice(0, 12) : v);
+  const repoUrl = new Map(data.repos.map((r) => [r.id, r.url]));
+
+  /** Tiny DOM builder: h('div', { class: 'x', onclick }, child, 'text'). */
+  function h(tag, attrs, ...children) {
+    const node = document.createElement(tag);
+    for (const [key, value] of Object.entries(attrs || {})) {
+      if (value === undefined || value === false) continue;
+      if (key.startsWith('on')) node.addEventListener(key.slice(2), value);
+      else node.setAttribute(key, value === true ? '' : value);
+    }
+    for (const child of children.flat()) if (child !== null && child !== undefined && child !== false) node.append(child);
+    return node;
+  }
+
+  function svg(tag, attrs) {
+    const node = document.createElementNS(SVG_NS, tag);
+    for (const [key, value] of Object.entries(attrs || {})) node.setAttribute(key, value);
+    return node;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Graph data
+
+  const kinds = [...new Set(data.links.map((l) => l.kind))].sort();
+  const enabledKinds = new Set(kinds);
+  let selected = null;
+
+  /** producer → consumer → links, and consumer → producer → links, for the enabled kinds. */
+  let consumers = new Map();
+  let dependencies = new Map();
+
+  function add(map, a, b, link) {
+    let inner = map.get(a);
+    if (!inner) map.set(a, (inner = new Map()));
+    let links = inner.get(b);
+    if (!links) inner.set(b, (links = []));
+    links.push(link);
+  }
+
+  function indexLinks() {
+    consumers = new Map();
+    dependencies = new Map();
+    for (const link of data.links) {
+      if (!enabledKinds.has(link.kind)) continue;
+      add(consumers, link.to, link.from, link);
+      add(dependencies, link.from, link.to, link);
+    }
+  }
+
+  /** Every repo that depends on `target`, breadth-first: repo → { depth, parent, links }. */
+  function impactOf(target) {
+    const result = new Map();
+    const seen = new Set([target]);
+    let frontier = [target];
+    for (let depth = 1; frontier.length; depth++) {
+      const next = [];
+      for (const producer of frontier) {
+        for (const [repo, links] of consumers.get(producer) || []) {
+          if (seen.has(repo)) continue;
+          seen.add(repo);
+          result.set(repo, { depth, parent: producer, links });
+          next.push(repo);
+        }
+      }
+      frontier = next.sort();
+    }
+    return result;
+  }
+
+  // One drawn edge per (consumer, producer) pair, whatever the number of references.
+  const pairsByKey = new Map();
+  for (const link of data.links) {
+    const key = `${link.from}\n${link.to}`;
+    let pair = pairsByKey.get(key);
+    if (!pair) pairsByKey.set(key, (pair = { from: link.from, to: link.to, kinds: new Set() }));
+    pair.kinds.add(link.kind);
+  }
+  const pairs = [...pairsByKey.values()];
+
+  const linked = new Set(pairs.flatMap((p) => [p.from, p.to]));
+  const nodes = data.repos.filter((r) => linked.has(r.id)).map((r, i) => ({ id: r.id, i, x: 0, y: 0, consumers: 0 }));
+  const nodeById = new Map(nodes.map((n) => [n.id, n]));
+  for (const pair of pairs) nodeById.get(pair.to).consumers++;
+
+  // ---------------------------------------------------------------------------
+  // Layout: Fruchterman–Reingold, run once up front. Fine for a few hundred repos.
+
+  function layout() {
+    const n = nodes.length;
+    if (!n) return;
+    const golden = Math.PI * (3 - Math.sqrt(5));
+    // Start hubs near the middle so the layout settles faster.
+    [...nodes]
+      .sort((a, b) => b.consumers - a.consumers)
+      .forEach((node, i) => {
+        const r = 18 * Math.sqrt(i + 0.5);
+        node.x = r * Math.cos(i * golden);
+        node.y = r * Math.sin(i * golden);
+      });
+
+    const k = 44;
+    // Without a cutoff, a big cluster pushes small separate groups far off screen.
+    const cutoff2 = (k * 8) ** 2;
+    const iterations = n > 600 ? 120 : n > 250 ? 200 : 300;
+    const edges = pairs.map((p) => [nodeById.get(p.from), nodeById.get(p.to)]);
+    const dx = new Float64Array(n);
+    const dy = new Float64Array(n);
+
+    for (let it = 0; it < iterations; it++) {
+      dx.fill(0);
+      dy.fill(0);
+      for (let a = 0; a < n; a++) {
+        const A = nodes[a];
+        for (let b = a + 1; b < n; b++) {
+          const B = nodes[b];
+          let x = A.x - B.x;
+          let y = A.y - B.y;
+          let d2 = x * x + y * y;
+          if (d2 > cutoff2) continue;
+          if (d2 < 0.01) {
+            x = (a - b) * 0.1;
+            y = 0.1;
+            d2 = x * x + y * y;
+          }
+          const f = (k * k) / d2;
+          dx[a] += x * f;
+          dy[a] += y * f;
+          dx[b] -= x * f;
+          dy[b] -= y * f;
+        }
+      }
+      for (const [A, B] of edges) {
+        const x = A.x - B.x;
+        const y = A.y - B.y;
+        const f = Math.sqrt(x * x + y * y) / k;
+        dx[A.i] -= x * f;
+        dy[A.i] -= y * f;
+        dx[B.i] += x * f;
+        dy[B.i] += y * f;
+      }
+      const t = k * 3 * (1 - it / iterations) + 1;
+      for (let a = 0; a < n; a++) {
+        // A little gravity keeps separate clusters on screen.
+        dx[a] -= nodes[a].x * 0.04;
+        dy[a] -= nodes[a].y * 0.04;
+        const len = Math.hypot(dx[a], dy[a]) || 1;
+        const step = Math.min(len, t);
+        nodes[a].x += (dx[a] / len) * step;
+        nodes[a].y += (dy[a] / len) * step;
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Drawing
+
+  const graph = $('graph');
+  const viewport = $('viewport');
+  const tooltip = $('tooltip');
+  const view = { x: 0, y: 0, k: 1 };
+
+  const radius = (node) => 4 + Math.sqrt(node.consumers) * 2.2;
+
+  function draw() {
+    for (const pair of pairs) {
+      pair.el = svg('line', { class: 'edge' });
+      $('edges').append(pair.el);
+    }
+    for (const node of nodes) {
+      node.el = svg('g', { class: 'node' });
+      node.el.append(svg('circle', { r: radius(node) }));
+      node.el.addEventListener('pointerenter', () => showTooltip(node));
+      node.el.addEventListener('pointerleave', () => (tooltip.hidden = true));
+      $('nodes').append(node.el);
+      // Labels live in their own layer above every circle, so no node can cover text.
+      node.label = svg('text', { class: 'label' });
+      node.label.textContent = short(node.id);
+      $('labels').append(node.label);
+    }
+    position();
+  }
+
+  function position() {
+    for (const node of nodes) node.el.setAttribute('transform', `translate(${node.x},${node.y})`);
+    for (const pair of pairs) {
+      const a = nodeById.get(pair.from);
+      const b = nodeById.get(pair.to);
+      pair.el.setAttribute('x1', a.x);
+      pair.el.setAttribute('y1', a.y);
+      pair.el.setAttribute('x2', b.x);
+      pair.el.setAttribute('y2', b.y);
+    }
+    scheduleLabels();
+  }
+
+  function applyView() {
+    viewport.setAttribute('transform', `translate(${view.x},${view.y}) scale(${view.k})`);
+    // Labels and outlines keep the same on-screen size at any zoom.
+    graph.style.setProperty('--k', String(view.k));
+    scheduleLabels();
+  }
+
+  /** Zooms so `list` fills the graph. `trim` ignores that share of outliers on each side. */
+  function fitNodes(list, { trim = 0, maxZoom = 2.5, pad = 70 } = {}) {
+    if (!list.length) return;
+    const range = (values) => {
+      const sorted = [...values].sort((a, b) => a - b);
+      const at = (q) => sorted[Math.min(sorted.length - 1, Math.max(0, Math.round(q * (sorted.length - 1))))];
+      return [at(trim), at(1 - trim)];
+    };
+    const [minX, maxX] = range(list.map((n) => n.x));
+    const [minY, maxY] = range(list.map((n) => n.y));
+    const w = graph.clientWidth;
+    const hgt = graph.clientHeight;
+    view.k = Math.min((w - pad * 2) / Math.max(maxX - minX, 1), (hgt - pad * 2) / Math.max(maxY - minY, 1), maxZoom);
+    view.x = w / 2 - ((minX + maxX) / 2) * view.k;
+    view.y = hgt / 2 - ((minY + maxY) / 2) * view.k;
+    applyView();
+  }
+
+  // The bulk of the graph; a few small separate groups shouldn't shrink everything else.
+  const fit = () => fitNodes(nodes, { trim: nodes.length >= 40 ? 0.03 : 0 });
+
+  /** Zooms to the selected repo and everything lit up with it, leaving room for their labels. */
+  function focusSelection() {
+    const lit = nodes.filter((n) => n.el.classList.contains('lit'));
+    if (lit.length === 1) {
+      view.k = Math.max(view.k, 1.5);
+      view.x = graph.clientWidth / 2 - lit[0].x * view.k;
+      view.y = graph.clientHeight / 2 - lit[0].y * view.k;
+      applyView();
+    } else {
+      fitNodes(lit, { maxZoom: 4, pad: 110 });
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Labels: show as many as fit without overlapping each other or any node, most important first.
+
+  const measure = document.createElement('canvas').getContext('2d');
+  const labelFont = getComputedStyle(document.body).fontFamily;
+  const LABEL = { normal: { size: 11, weight: 400, h: 13 }, strong: { size: 12.5, weight: 650, h: 15 } };
+
+  function textWidth(node, style) {
+    const key = style === LABEL.strong ? 'wStrong' : 'w';
+    if (node[key] === undefined) {
+      measure.font = `${style.weight} ${style.size}px ${labelFont}`;
+      // Canvas measures a little narrower than SVG renders; pad so labels never touch a dot.
+      node[key] = measure.measureText(short(node.id)).width * 1.06 + 2;
+    }
+    return node[key];
+  }
+
+  let labelFrame = 0;
+  function scheduleLabels() {
+    if (!labelFrame) labelFrame = requestAnimationFrame(placeLabels);
+  }
+
+  function placeLabels() {
+    labelFrame = 0;
+    const width = graph.clientWidth;
+    const height = graph.clientHeight;
+    const onScreen = (n) => ({ x: n.x * view.k + view.x, y: n.y * view.k + view.y, r: radius(n) * view.k });
+    const has = (n, cls) => n.el.classList.contains(cls);
+
+    let wanted;
+    let obstacles;
+    if (selected) {
+      const rank = (n) => (n.id === selected ? 0 : has(n, 'direct') ? 1 : has(n, 'dependency') ? 2 : 3);
+      wanted = nodes.filter((n) => has(n, 'lit')).sort((a, b) => rank(a) - rank(b) || b.consumers - a.consumers);
+      obstacles = wanted; // faded nodes may sit under a label
+    } else {
+      wanted = nodes.filter((n) => n.consumers > 0).sort((a, b) => b.consumers - a.consumers).slice(0, 40);
+      // Only the hubs block labels; small leaves can sit under the text, which has an outline.
+      obstacles = wanted;
+    }
+    const mustShow = selected ? nodeById.get(selected) : wanted[0];
+    const circles = obstacles.map((n) => ({ node: n, ...onScreen(n) }));
+    // The legend and the Fit button float over the graph, so labels avoid them too.
+    const box = graph.getBoundingClientRect();
+    const placed = [...document.querySelectorAll('.legend, #fit')].map((el) => {
+      const r = el.getBoundingClientRect();
+      return { x: r.left - box.left - 4, y: r.top - box.top - 4, w: r.width + 8, h: r.height + 8 };
+    });
+
+    const hitsLabel = (a) => placed.some((b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h);
+    const hitsNode = (rect) =>
+      circles.some((c) => {
+        const cx = Math.max(rect.x, Math.min(c.x, rect.x + rect.w));
+        const cy = Math.max(rect.y, Math.min(c.y, rect.y + rect.h));
+        return (c.x - cx) ** 2 + (c.y - cy) ** 2 < (c.r + 1.5) ** 2;
+      });
+    const inView = (rect) => rect.x >= 4 && rect.y >= 4 && rect.x + rect.w <= width - 4 && rect.y + rect.h <= height - 4;
+
+    const shown = new Set();
+    for (const node of wanted) {
+      const c = onScreen(node);
+      const style = node.id === selected ? LABEL.strong : LABEL.normal;
+      const w = textWidth(node, style);
+      const h = style.h;
+      const gap = 3;
+      const candidates = [
+        { x: c.x + c.r + gap, y: c.y - h / 2 },
+        { x: c.x - c.r - gap - w, y: c.y - h / 2 },
+        { x: c.x - w / 2, y: c.y - c.r - gap - h },
+        { x: c.x - w / 2, y: c.y + c.r + gap },
+      ].map((p) => ({ ...p, w, h }));
+      let spot = candidates.find((r) => inView(r) && !hitsLabel(r) && !hitsNode(r));
+      // The selected repo (or the biggest hub) is always named, even if it has to overlap something.
+      if (!spot && node === mustShow) spot = candidates.find((r) => !hitsLabel(r)) || candidates[0];
+      if (!spot) continue;
+      placed.push(spot);
+      shown.add(node);
+      node.label.setAttribute('x', (spot.x - view.x) / view.k);
+      node.label.setAttribute('y', (spot.y + h * 0.78 - view.y) / view.k);
+    }
+    for (const node of nodes) {
+      node.label.classList.toggle('placed', shown.has(node));
+      node.label.classList.toggle('strong', node.id === selected);
+    }
+  }
+
+  function showTooltip(node) {
+    const r = graph.getBoundingClientRect();
+    const wrap = graph.parentElement.getBoundingClientRect();
+    tooltip.textContent = `${short(node.id)} · used by ${plural(consumers.get(node.id)?.size ?? 0, 'repo')}`;
+    tooltip.style.left = `${node.x * view.k + view.x + r.left - wrap.left}px`;
+    tooltip.style.top = `${node.y * view.k + view.y - radius(node) * view.k + r.top - wrap.top}px`;
+    tooltip.hidden = false;
+  }
+
+  // Pan with the background, drag nodes, zoom with the wheel or a trackpad pinch.
+  function setUpInteraction() {
+    let drag = null;
+    const point = (e) => {
+      const r = graph.getBoundingClientRect();
+      return { x: e.clientX - r.left, y: e.clientY - r.top };
+    };
+
+    graph.addEventListener('pointerdown', (e) => {
+      const nodeEl = e.target.closest('.node');
+      const node = nodeEl && nodes.find((n) => n.el === nodeEl);
+      drag = { node, start: point(e), last: point(e), moved: false };
+      graph.setPointerCapture(e.pointerId);
+      if (!node) graph.classList.add('panning');
+    });
+
+    graph.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      const p = point(e);
+      if (Math.hypot(p.x - drag.start.x, p.y - drag.start.y) > 4) drag.moved = true;
+      if (drag.node) {
+        drag.node.x += (p.x - drag.last.x) / view.k;
+        drag.node.y += (p.y - drag.last.y) / view.k;
+        position();
+        tooltip.hidden = true;
+      } else {
+        view.x += p.x - drag.last.x;
+        view.y += p.y - drag.last.y;
+        applyView();
+      }
+      drag.last = p;
+    });
+
+    graph.addEventListener('pointerup', () => {
+      if (drag && !drag.moved) select(drag.node ? drag.node.id : null);
+      drag = null;
+      graph.classList.remove('panning');
+    });
+
+    graph.addEventListener(
+      'wheel',
+      (e) => {
+        e.preventDefault();
+        const p = point(e);
+        const k = Math.min(8, Math.max(0.08, view.k * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015))));
+        view.x = p.x - (p.x - view.x) * (k / view.k);
+        view.y = p.y - (p.y - view.y) * (k / view.k);
+        view.k = k;
+        applyView();
+        tooltip.hidden = true;
+      },
+      { passive: false },
+    );
+
+    $('fit').addEventListener('click', fit);
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && document.activeElement !== $('search')) select(null);
+    });
+  }
+
+  function highlight() {
+    graph.classList.toggle('focus', Boolean(selected));
+    for (const node of nodes) node.el.classList.remove('selected', 'direct', 'indirect', 'dependency', 'lit');
+    for (const pair of pairs) {
+      pair.el.classList.remove('hot', 'indirect', 'dep');
+      pair.el.style.display = [...pair.kinds].some((k) => enabledKinds.has(k)) ? '' : 'none';
+    }
+    scheduleLabels();
+    if (!selected) return;
+
+    const affected = impactOf(selected);
+    const deps = dependencies.get(selected) || new Map();
+    const mark = (id, ...classes) => nodeById.get(id)?.el.classList.add('lit', ...classes);
+    mark(selected, 'selected');
+    for (const [id, info] of affected) mark(id, info.depth === 1 ? 'direct' : 'indirect');
+    for (const id of deps.keys()) if (!affected.has(id)) mark(id, 'dependency');
+
+    for (const pair of pairs) {
+      if (pair.el.style.display === 'none') continue;
+      const from = affected.get(pair.from);
+      if (from && (pair.to === selected || affected.has(pair.to))) pair.el.classList.add('hot', ...(from.depth > 1 ? ['indirect'] : []));
+      else if (pair.from === selected && deps.has(pair.to)) pair.el.classList.add('dep');
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Side panel
+
+  function refLine(link) {
+    const url = repoUrl.get(link.from);
+    const where = `${link.file}:${link.line}`;
+    return h(
+      'span',
+      { class: 'ref' },
+      h('span', { class: 'kind' }, KIND_LABEL[link.kind] || link.kind),
+      `${link.name}${link.kind === 'image' ? ':' : '@'}${shortVersion(link.version)} · `,
+      url ? h('a', { href: `${url}/blob/HEAD/${link.file}#L${link.line}`, target: '_blank', rel: 'noopener' }, where) : where,
+      link.confidence === 'convention' ? h('span', { class: 'guess', title: 'Linked by naming convention' }, ' (guessed)') : null,
+    );
+  }
+
+  function refLines(links) {
+    const shown = links.slice(0, MAX_REFS).map(refLine);
+    if (links.length > MAX_REFS) shown.push(h('span', { class: 'ref' }, `+${links.length - MAX_REFS} more`));
+    return shown;
+  }
+
+  function repoButton(id, dotClass, ...extra) {
+    return h(
+      'button',
+      { class: 'repo-link', onclick: () => select(id, { focus: true }) },
+      dotClass ? h('i', { class: `dot ${dotClass}` }) : null,
+      short(id),
+      ...extra,
+    );
+  }
+
+  function renderOverview(box) {
+    const ranked = [...consumers]
+      .map(([id, users]) => ({ id, count: users.size }))
+      .sort((a, b) => b.count - a.count || a.id.localeCompare(b.id))
+      .slice(0, 15);
+    box.append(
+      h('h2', {}, 'Most depended-on'),
+      h(
+        'p',
+        { class: 'sub' },
+        'Each dot is a repo. Each line means one repo uses something another builds: a base image, a Terraform module, a shared workflow, a package. ' +
+          'Click a repo to see everything a change to it would affect.',
+      ),
+      ranked.length
+        ? h('ul', { class: 'list top-list' }, ranked.map((r) => h('li', {}, repoButton(r.id, null, h('span', { class: 'uses-count' }, `used by ${r.count}`)))))
+        : h('p', { class: 'hint' }, 'No cross-repo links found in this scan.'),
+    );
+    const unlinked = data.repos.length - nodes.length;
+    if (unlinked > 0) box.append(h('p', { class: 'hint' }, `${plural(unlinked, 'repo')} have no cross-repo links and aren't drawn. You can still search for them.`));
+  }
+
+  function renderRepo(box, id) {
+    const affected = impactOf(id);
+    const deps = dependencies.get(id) || new Map();
+    const direct = [...affected].filter(([, info]) => info.depth === 1);
+    const indirect = [...affected].filter(([, info]) => info.depth > 1);
+    const url = repoUrl.get(id);
+
+    box.append(
+      h('h2', {}, short(id)),
+      url ? h('p', { class: 'sub' }, h('a', { href: url, target: '_blank', rel: 'noopener' }, url.replace(/^https:\/\//, ''))) : null,
+      h(
+        'p',
+        { class: 'headline' },
+        affected.size
+          ? ['Changing it affects ', h('b', {}, plural(affected.size, 'repo')), `: ${direct.length} direct, ${indirect.length} indirect.`]
+          : 'Nothing in this scan depends on it.',
+      ),
+    );
+
+    if (direct.length) {
+      box.append(
+        h('h3', {}, `Directly affected (${direct.length})`),
+        h('ul', { class: 'list' }, direct.map(([repo, info]) => h('li', {}, repoButton(repo, 'direct'), refLines(info.links)))),
+      );
+    }
+    if (indirect.length) {
+      box.append(
+        h('h3', {}, `Indirectly affected (${indirect.length})`),
+        h(
+          'ul',
+          { class: 'list' },
+          indirect.map(([repo, info]) =>
+            h('li', {}, repoButton(repo, 'indirect', h('span', { class: 'via' }, `via ${short(info.parent)}`)), refLines(info.links.slice(0, 1))),
+          ),
+        ),
+      );
+    }
+    if (deps.size) {
+      box.append(
+        h('h3', {}, `Depends on (${deps.size})`),
+        h('ul', { class: 'list' }, [...deps].sort(([a], [b]) => a.localeCompare(b)).map(([repo, links]) => h('li', {}, repoButton(repo, 'dependency'), refLines(links)))),
+      );
+    }
+  }
+
+  function renderDetails() {
+    const box = $('details');
+    box.replaceChildren();
+    if (selected) renderRepo(box, selected);
+    else renderOverview(box);
+  }
+
+  function select(id, options = {}) {
+    selected = id;
+    if (id) showTab('impact');
+    highlight();
+    renderDetails();
+    $('search').value = id ? short(id) : '';
+    history.replaceState(null, '', id ? `#repo=${encodeURIComponent(id)}` : location.pathname + location.search);
+    if (id && options.focus) focusSelection();
+  }
+
+  function setUpSearch() {
+    const input = $('search');
+    $('repo-names').replaceChildren(...data.repos.map((r) => h('option', { value: short(r.id) })));
+    const find = (text) => {
+      const q = text.trim().toLowerCase();
+      if (!q) return null;
+      return (
+        data.repos.find((r) => r.id === q || short(r.id) === q) ||
+        data.repos.find((r) => short(r.id).startsWith(q)) ||
+        data.repos.find((r) => r.id.includes(q))
+      );
+    };
+    const go = () => {
+      const repo = find(input.value);
+      if (repo) select(repo.id, { focus: true });
+    };
+    input.addEventListener('change', go);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') go();
+      if (e.key === 'Escape') select(null);
+    });
+  }
+
+  function setUpKinds() {
+    const box = $('kinds');
+    if (kinds.length < 2) return;
+    for (const kind of kinds) {
+      const count = data.links.filter((l) => l.kind === kind).length;
+      const chip = h('button', { class: 'chip', 'aria-pressed': 'true', title: `Show ${KIND_LABEL[kind]} links` }, KIND_LABEL[kind] || kind, h('span', { class: 'n' }, count));
+      chip.addEventListener('click', () => {
+        const on = !enabledKinds.has(kind);
+        if (on) enabledKinds.add(kind);
+        else if (enabledKinds.size > 1) enabledKinds.delete(kind);
+        else return;
+        chip.setAttribute('aria-pressed', String(on));
+        indexLinks();
+        highlight();
+        renderDetails();
+      });
+      box.append(chip);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Drift tab
+
+  /** Long lists collapse so the outliers on other versions stay visible. */
+  function repoChips(repos) {
+    const COLLAPSED = 6;
+    const box = h('div', { class: 'repos' });
+    const chip = (repo) => h('button', { class: 'repo-chip', onclick: () => select(repo, { focus: true }) }, short(repo));
+    const show = (all) => {
+      const visible = all || repos.length <= COLLAPSED + 2 ? repos : repos.slice(0, COLLAPSED);
+      box.replaceChildren(...visible.map(chip));
+      if (visible.length < repos.length) {
+        box.append(h('button', { class: 'repo-chip more', onclick: () => show(true) }, `+${repos.length - visible.length} more`));
+      }
+    };
+    show(false);
+    return box;
+  }
+
+  function renderDrift() {
+    const includeThirdParty = $('third-party').checked;
+    const entries = data.drift.filter((e) => includeThirdParty || e.producers.length);
+    $('drift-count').textContent = String(data.drift.filter((e) => e.producers.length).length);
+
+    const list = $('drift-list');
+    list.replaceChildren();
+    if (!entries.length) {
+      list.append(h('p', { class: 'empty' }, includeThirdParty ? 'No version drift found.' : 'Nothing built in these repos is used at more than one version.'));
+      return;
+    }
+    for (const entry of entries) {
+      const repoCount = new Set(entry.versions.flatMap((v) => v.repos)).size;
+      list.append(
+        h(
+          'article',
+          { class: 'artifact' },
+          h(
+            'div',
+            { class: 'artifact-head' },
+            h('span', { class: 'name' }, entry.name),
+            entry.producers.length
+              ? h('span', { class: 'badge internal' }, `built in ${entry.producers.map(short).join(', ')}`)
+              : h('span', { class: 'badge' }, 'third-party'),
+            h('span', { class: 'meta' }, `${KIND_LABEL[entry.kind] || entry.kind} · ${plural(entry.versions.length, 'version')} across ${plural(repoCount, 'repo')}`),
+          ),
+          h(
+            'div',
+            { class: 'versions' },
+            entry.versions.flatMap((v, i) => [
+              h('span', { class: `v${i === 0 ? ' newest' : ''}`, title: i === 0 ? 'Newest' : undefined }, shortVersion(v.version)),
+              repoChips(v.repos),
+            ]),
+          ),
+        ),
+      );
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Tabs and startup
+
+  let fitted = false;
+  function showTab(name) {
+    for (const button of document.querySelectorAll('.tabs button')) button.setAttribute('aria-selected', String(button.dataset.tab === name));
+    $('tab-impact').hidden = name !== 'impact';
+    $('tab-drift').hidden = name !== 'drift';
+    if (name === 'impact' && !fitted) {
+      fitted = true;
+      requestAnimationFrame(() => (selected ? focusSelection() : fit()));
+    }
+  }
+
+  for (const button of document.querySelectorAll('.tabs button')) button.addEventListener('click', () => showTab(button.dataset.tab));
+  $('third-party').addEventListener('change', renderDrift);
+
+  const generated = new Date(data.generatedAt);
+  $('stats').replaceChildren(
+    h('b', {}, String(data.repos.length)),
+    ' repos · ',
+    h('b', {}, String(data.links.length)),
+    ' links · ',
+    Number.isNaN(generated.getTime()) ? '' : `scanned ${generated.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}`,
+  );
+
+  indexLinks();
+  layout();
+  draw();
+  setUpInteraction();
+  setUpSearch();
+  setUpKinds();
+  renderDrift();
+
+  if (!nodes.length) {
+    graph.parentElement.append(h('p', { class: 'empty', style: 'position:absolute;inset:40% 0 auto' }, 'No cross-repo links found in this scan.'));
+  }
+
+  /** Links like report.html#repo=acme/api open with that repo selected. */
+  function selectFromHash() {
+    const id = decodeURIComponent((location.hash.match(/^#repo=(.+)$/) || [])[1] || '');
+    select(data.repos.some((r) => r.id === id) ? id : null, { focus: true });
+  }
+
+  showTab('impact');
+  selectFromHash();
+  window.addEventListener('hashchange', selectFromHash);
+  window.addEventListener('resize', fit);
+})();
+
+</script>
+</body>
+</html>

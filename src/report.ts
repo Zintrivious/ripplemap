@@ -54,7 +54,7 @@ ${asset('report.css')}
 </head>
 <body>
 <header class="top">
-  <div class="brand"><span class="logo" aria-hidden="true"></span>ripplemap<span class="source">${escapeHtml(data.source)}</span></div>
+  <div class="brand"><a class="home" href="https://github.com/Zintrivious/ripplemap" target="_blank" rel="noopener" title="Made with ripplemap"><span class="logo" aria-hidden="true"></span>ripplemap</a><span class="source">${escapeHtml(data.source)}</span></div>
   <nav class="tabs" role="tablist">
     <button role="tab" data-tab="impact" aria-selected="true">Impact</button>
     <button role="tab" data-tab="drift" aria-selected="false">Drift <span class="count" id="drift-count"></span></button>
