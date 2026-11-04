@@ -27,6 +27,7 @@ const FAMILY: Record<ArtifactKind, string> = {
   'helm-chart': 'helm',
   go: 'go',
   python: 'python',
+  pipeline: 'ci',
 };
 
 /** The part of a repo an artifact is built from: one file, a folder, or (dir "") the whole repo. */
@@ -40,6 +41,9 @@ function scopeOf(graph: Graph, repo: string, kind: ArtifactKind, name: string): 
     case 'workflow':
       // owner/repo/.github/workflows/build.yml
       return { file: name.split('/').slice(2).join('/') };
+    case 'pipeline':
+      // org/project/repo//templates/build.yml
+      return { file: name.split('//')[1] ?? '' };
     case 'action':
       // owner/repo or owner/repo/path/to/action
       return { dir: name.split('/').slice(2).join('/') };

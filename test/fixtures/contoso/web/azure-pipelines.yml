@@ -1,0 +1,8 @@
+resources:
+  repositories:
+    - repository: templates
+      type: git
+      name: pipeline-templates
+
+extends:
+  template: templates/build.yml@templates

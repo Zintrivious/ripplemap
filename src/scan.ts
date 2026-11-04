@@ -44,7 +44,10 @@ function isExcluded(file: string, exclude: string[]): boolean {
   });
 }
 
-export const skipDir = (name: string) => SKIP_DIRS.has(name) || (name.startsWith('.') && name !== '.github');
+/** Dot-folders that hold CI configuration ripplemap reads. Every other dot-folder is skipped. */
+const KEPT_DOT_DIRS = new Set(['.github', '.azure-pipelines', '.azuredevops', '.pipelines']);
+
+export const skipDir = (name: string) => SKIP_DIRS.has(name) || (name.startsWith('.') && !KEPT_DOT_DIRS.has(name));
 
 /**
  * Whether a repo-relative path should be read: some parser wants it, it is not excluded,
@@ -93,13 +96,18 @@ function identify(repoDir: string, root: string, owner?: string): RepoInfo {
   const ref = remote ? parseRepoUrl(remote) : null;
   const name = ref?.name ?? basename(repoDir).toLowerCase();
   const repoOwner = ref?.owner ?? owner?.toLowerCase() ?? '';
-  const webHost = ref && /^(github\.com|gitlab\.com|bitbucket\.org)$/.test(ref.host);
+  let url: string | undefined;
+  if (ref && /^(github\.com|gitlab\.com|bitbucket\.org)$/.test(ref.host)) url = `https://${ref.host}/${ref.owner}/${ref.name}`;
+  if (ref?.host === 'dev.azure.com') {
+    const [org, project] = ref.owner.split('/') as [string, string];
+    url = `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_git/${encodeURIComponent(ref.name)}`;
+  }
   return {
     id: repoOwner ? `${repoOwner}/${name}` : name,
     owner: repoOwner,
     name,
     path: relative(root, repoDir).split(sep).join('/') || '.',
-    ...(webHost ? { url: `https://${ref.host}/${ref.owner}/${ref.name}` } : {}),
+    ...(url ? { url } : {}),
   };
 }
 

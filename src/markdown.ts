@@ -1,6 +1,7 @@
 import type { ChangeImpact } from './changes.ts';
 import { repoNamer } from './format.ts';
 import type { ArtifactKind, Graph, Link } from './types.ts';
+import { fileUrl } from './util.ts';
 
 /** Marks ripplemap's PR comment so later runs update it instead of adding another. */
 export const COMMENT_MARKER = '<!-- ripplemap -->';
@@ -14,6 +15,7 @@ const KIND_NAME: Record<ArtifactKind, string> = {
   'helm-chart': 'Helm chart',
   go: 'Go module',
   python: 'Python package',
+  pipeline: 'Azure Pipelines template',
 };
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -40,7 +42,7 @@ export function formatChangeMarkdown(graph: Graph, impact: ChangeImpact, options
   const where = (link: Link) => {
     const label = `${link.location.file}:${link.location.line}`;
     const url = urls.get(link.from);
-    return url ? `[${cell(label)}](${url}/blob/HEAD/${link.location.file}#L${link.location.line})` : cell(label);
+    return url ? `[${cell(label)}](${fileUrl(url, link.location.file, link.location.line)})` : cell(label);
   };
   const source = graph.source || 'the scanned repos';
   const out: string[] = [COMMENT_MARKER];

@@ -6,13 +6,14 @@ import { parseArgs } from 'node:util';
 import { changeImpact } from './changes.ts';
 import { dim, formatChangeImpact, formatDrift, formatImpact, formatScanSummary, formatUnpinned, plural, yellow } from './format.ts';
 import { formatChangeMarkdown } from './markdown.ts';
+import { scanAzure } from './azure.ts';
 import { scanGitHub } from './github.ts';
 import { drift, findRepo, impact, mostDependedOn, unpinned } from './graph.ts';
 import { renderReport } from './report.ts';
 import { scan, type ScanResult } from './scan.ts';
 import type { ArtifactKind, Graph } from './types.ts';
 
-const KINDS: ArtifactKind[] = ['image', 'terraform-module', 'workflow', 'action', 'npm', 'helm-chart', 'go', 'python'];
+const KINDS: ArtifactKind[] = ['image', 'terraform-module', 'workflow', 'action', 'npm', 'helm-chart', 'go', 'python', 'pipeline'];
 const DEFAULT_GRAPH = 'ripplemap.json';
 
 const HELP = `ripplemap: see which repos are affected when you change one
@@ -27,6 +28,11 @@ Usage:
       Scan every repo of a GitHub org or user without cloning. Uses GITHUB_TOKEN, GH_TOKEN,
       or your "gh auth login" session. Takes --out, --exclude and --verbose too.
       --match  only repos whose name matches, e.g. "terraform-*" (repeatable)
+
+  ripplemap scan --azure-org <org> [--project <name>] [--match <glob>] [--include-forks] [--no-cache]
+      Scan an Azure DevOps organization without cloning. Uses AZURE_DEVOPS_TOKEN (a PAT with
+      Code: read), AZURE_DEVOPS_EXT_PAT, or SYSTEM_ACCESSTOKEN in a pipeline. Without a token,
+      name public projects with --project (repeatable).
 
   ripplemap impact <repo> [--graph ripplemap.json] [--json]
       Every repo that depends on <repo>, directly or through other repos.
@@ -94,6 +100,8 @@ async function runScan(args: string[]): Promise<number> {
       exclude: { type: 'string', multiple: true },
       verbose: { type: 'boolean', short: 'v', default: false },
       org: { type: 'string' },
+      'azure-org': { type: 'string' },
+      project: { type: 'string', multiple: true },
       match: { type: 'string', multiple: true },
       'include-forks': { type: 'boolean', default: false },
       'include-archived': { type: 'boolean', default: false },
@@ -102,8 +110,9 @@ async function runScan(args: string[]): Promise<number> {
     },
   });
   const dir = positionals[0];
-  if (dir && values.org) throw new Error('Pass either a folder or --org, not both.');
-  if (!dir && !values.org) throw new Error('Usage: ripplemap scan <dir>  or  ripplemap scan --org <name>');
+  const sources = [dir, values.org, values['azure-org']].filter(Boolean).length;
+  if (sources > 1) throw new Error('Pass one of a folder, --org or --azure-org.');
+  if (!sources) throw new Error('Usage: ripplemap scan <dir>  or  ripplemap scan --org <github-org>  or  ripplemap scan --azure-org <org>');
 
   let result: ScanResult;
   let source: string;
@@ -124,6 +133,24 @@ async function runScan(args: string[]): Promise<number> {
     const skipped = stats.skipped ? `, skipped ${stats.skipped} forks/archived/unmatched` : '';
     console.error(dim(`${stats.apiRequests} API requests, ${stats.downloads} files downloaded, ${stats.cacheHits} from cache${skipped}.`));
     result = github;
+  } else if (values['azure-org']) {
+    const org = values['azure-org'];
+    source = `dev.azure.com/${org}`;
+    const progress = process.stderr.isTTY ? (done: number, total: number) => process.stderr.write(`\rFetching repos ${done}/${total}`) : undefined;
+    const azure = await scanAzure({
+      org,
+      projects: values.project,
+      match: values.match,
+      includeForks: values['include-forks'],
+      cacheDir: values['no-cache'] ? false : undefined,
+      exclude: values.exclude,
+      onProgress: progress,
+    });
+    if (progress) process.stderr.write('\r\x1b[K');
+    const { stats } = azure;
+    const skipped = stats.skipped ? `, skipped ${stats.skipped} disabled/forked/unmatched` : '';
+    console.error(dim(`${stats.apiRequests} API requests, ${stats.downloads} files downloaded, ${stats.cacheHits} from cache${skipped}.`));
+    result = azure;
   } else {
     if (!existsSync(dir!)) throw new Error(`${dir} does not exist.`);
     source = dir!;

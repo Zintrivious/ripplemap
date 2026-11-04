@@ -51,6 +51,15 @@ base-images
 
 Scans are fast and cached. Cloud Posse's 163 Terraform repos took 25 seconds the first time; repeat scans take about 5 seconds, because only repos with new pushes are fetched again. Already have the repos cloned? Run `npx ripplemap scan ~/code/your-org` instead.
 
+**On Azure DevOps?** Scan the organization directly, with a [personal access token](https://learn.microsoft.com/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate) that has Code (read) scope:
+
+```bash
+AZURE_DEVOPS_TOKEN=<your PAT> npx ripplemap scan --azure-org your-org
+npx ripplemap report --open
+```
+
+Public projects work without a token: `npx ripplemap scan --azure-org your-org --project YourProject`. Module sources and remotes are matched however they're written: `https://dev.azure.com/...`, `git@ssh.dev.azure.com:v3/...` or `*.visualstudio.com`.
+
 Or install it globally with `npm install -g ripplemap`.
 
 ## On every pull request
@@ -129,6 +138,8 @@ Scans a GitHub org or user through the API, or a folder of cloned repos (or a si
 | Option | |
 |---|---|
 | `--org <name>` | GitHub org or user to scan without cloning |
+| `--azure-org <org>` | Azure DevOps organization to scan without cloning. Uses `AZURE_DEVOPS_TOKEN` (or `AZURE_DEVOPS_EXT_PAT`, or `SYSTEM_ACCESSTOKEN` inside a pipeline). |
+| `--project <name>` | With `--azure-org`: only these projects (repeatable). Needed for public projects scanned without a token. |
 | `--match <glob>` | With `--org`: only repos whose name matches, e.g. `terraform-*`. Repeatable. |
 | `--include-forks`, `--include-archived` | With `--org`: forks and archived repos are skipped by default |
 | `--no-cache` | With `--org`: don't read or write the download cache (`~/.cache/ripplemap`) |
@@ -212,6 +223,7 @@ Writes `ripplemap.html`: one self-contained page with an interactive graph, the 
 | Kubernetes manifests (`*.yaml` with `apiVersion` and `kind`) | `containers`, `initContainers` and `ephemeralContainers` images in any workload, including CRDs, across multi-document files | |
 | Helm `Chart.yaml`, `values*.yaml` | chart `dependencies` (not `file://`), images in values as `image: repo:tag` or `{ registry, repository, tag }` | the chart, by `name` |
 | `go.mod` | direct `require`s (`// indirect` ones are found by following the chain) | the `module` path |
+| Azure Pipelines YAML | `template: path@alias` from other repos declared under `resources.repositories` (Azure Repos and GitHub), and `resources.containers` images | |
 | `pyproject.toml`, `requirements*.txt` | PEP 621 `dependencies`, optional dependencies and `[dependency-groups]`, Poetry dependency tables, requirement lines and `git+https://` URLs | the `[project]` or Poetry `name` |
 
 ### How references are linked to repos
@@ -247,11 +259,13 @@ Spot-checked links point at the exact dependency line in the real files.
 - Images whose names are built from build-script variables can't be resolved statically, so they aren't linked to the repo that builds them. Argo's `workflow-controller` image is one example.
 - Folders named `node_modules`, `vendor`, `fixture(s)`, `__fixtures__`, `testdata` and `__snapshots__` are skipped. Their manifests are installed dependencies or deliberately fake test data.
 - When scanning a folder, repos are found one level deep: `repos/<repo>`. Nested layouts aren't supported yet.
-- `--org` works with github.com only. GitHub Enterprise Server isn't supported yet.
+- Scanning without cloning works for github.com (`--org`) and Azure DevOps Services (`--azure-org`). GitHub Enterprise Server, Azure DevOps Server, GitLab and Bitbucket work by scanning a folder of clones.
+- Pull request comments are GitHub-only for now.
 
 ## Roadmap
 
-- `--org` for GitHub Enterprise Server, then GitLab and Bitbucket
+- Pull request comments on Azure DevOps
+- Scanning GitHub Enterprise Server, GitLab and Bitbucket without cloning
 - The Action on GitLab merge requests
 
 Bug reports with real-world files ripplemap misreads are the most useful contribution there is. Check the [issues](https://github.com/Zintrivious/ripplemap/issues).

@@ -1,0 +1,26 @@
+trigger:
+  - main
+
+resources:
+  repositories:
+    - repository: templates
+      type: git
+      name: Platform/pipeline-templates
+      ref: refs/tags/v2.1.0
+    - repository: shared
+      type: github
+      name: acme/ci-templates
+      endpoint: github
+  containers:
+    - container: builder
+      image: contoso.azurecr.io/builder:4
+
+stages:
+  - stage: build
+    jobs:
+      - job: build
+        steps:
+          - template: templates/build.yml@templates
+            parameters:
+              project: api.csproj
+          - template: local-steps.yml

@@ -6,6 +6,34 @@ export interface RepoRef {
   name: string;
 }
 
+/**
+ * Azure DevOps writes one repo several ways. They all become host dev.azure.com, owner "org/project":
+ *   https://[user@]dev.azure.com/org/project/_git/repo
+ *   https://org.visualstudio.com/[DefaultCollection/]project/_git/repo
+ *   git@ssh.dev.azure.com:v3/org/project/repo  (and vs-ssh.visualstudio.com)
+ * Returns undefined for other hosts, and null for an Azure URL it can't read.
+ */
+function azureRepo(host: string, parts: string[]): RepoRef | null | undefined {
+  let org: string | undefined;
+  let project: string | undefined;
+  let name: string | undefined;
+  if (host === 'ssh.dev.azure.com' || host === 'vs-ssh.visualstudio.com') {
+    if (parts[0] === 'v3') [, org, project, name] = parts;
+  } else if (host === 'dev.azure.com' || host.endsWith('.visualstudio.com')) {
+    const git = parts.indexOf('_git');
+    if (git === -1) return null;
+    name = parts[git + 1];
+    project = parts[git - 1];
+    org = host === 'dev.azure.com' ? parts[0] : host.split('.')[0];
+    // A project-named repo can drop the project: dev.azure.com/org/_git/repo.
+    if (host === 'dev.azure.com' && git === 1) project = name;
+  } else {
+    return undefined;
+  }
+  if (!org || !project || !name) return null;
+  return { host: 'dev.azure.com', owner: `${org}/${project}`.toLowerCase(), name: name.toLowerCase() };
+}
+
 /** Parses git remote URLs: git@host:owner/repo.git, https://host/owner/repo, ssh://git@host/owner/repo. */
 export function parseRepoUrl(url: string): RepoRef | null {
   let host: string;
@@ -23,7 +51,9 @@ export function parseRepoUrl(url: string): RepoRef | null {
       return null;
     }
   }
-  const parts = path.replace(/\.git\/?$/, '').split('/').filter(Boolean);
+  const parts = path.replace(/\.git\/?$/, '').split('/').filter(Boolean).map((p) => decodeURIComponent(p));
+  const azure = azureRepo(host.toLowerCase(), parts);
+  if (azure !== undefined) return azure;
   if (parts.length < 2) return null;
   return {
     host: host.toLowerCase(),

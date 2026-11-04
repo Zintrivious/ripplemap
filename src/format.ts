@@ -18,6 +18,7 @@ const KIND_LABEL: Record<ArtifactKind, string> = {
   'helm-chart': 'chart',
   go: 'go',
   python: 'python',
+  pipeline: 'pipeline',
 };
 
 const MAX_REPOS_PER_LINE = 4;

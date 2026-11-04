@@ -1,0 +1,5 @@
+parameters:
+  - name: project
+    type: string
+steps:
+  - script: dotnet build ${{ parameters.project }}

@@ -1,6 +1,6 @@
 {
   "name": "ripplemap",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "See which repos in your org are affected when you change one. Maps cross-repo dependencies from Dockerfiles, Terraform, GitHub Actions, npm and Compose files with zero config.",
   "keywords": [
     "dependency-graph",

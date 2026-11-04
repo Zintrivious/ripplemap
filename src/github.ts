@@ -134,12 +134,12 @@ async function listRepos(client: GitHubClient, org: string): Promise<ApiRepo[]> 
   }
 }
 
-function globToRegExp(glob: string): RegExp {
+export function globToRegExp(glob: string): RegExp {
   const body = glob.split('*').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*');
   return new RegExp(`^${body}$`, 'i');
 }
 
-async function pool<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+export async function pool<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
   let next = 0;
   const worker = async () => {
     while (next < items.length) await fn(items[next++]!);

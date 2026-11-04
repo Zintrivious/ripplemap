@@ -3,7 +3,7 @@
 
   const data = JSON.parse(document.getElementById('ripplemap-data').textContent);
   const SVG_NS = 'http://www.w3.org/2000/svg';
-  const KIND_LABEL = { image: 'image', 'terraform-module': 'module', workflow: 'workflow', action: 'action', npm: 'npm', 'helm-chart': 'chart', go: 'go', python: 'python' };
+  const KIND_LABEL = { image: 'image', 'terraform-module': 'module', workflow: 'workflow', action: 'action', npm: 'npm', 'helm-chart': 'chart', go: 'go', python: 'python', pipeline: 'pipeline' };
   const MAX_REFS = 3;
 
   const $ = (id) => document.getElementById(id);
@@ -11,6 +11,16 @@
   const short = (id) => (data.owner && id.startsWith(data.owner + '/') ? id.slice(data.owner.length + 1) : id);
   const shortVersion = (v) => (/^[0-9a-f]{40}$/.test(v) ? v.slice(0, 12) : v);
   const repoUrl = new Map(data.repos.map((r) => [r.id, r.url]));
+
+  /** A link to one line of a file, in the URL style of the repo's host (same rules as src/util.ts). */
+  function fileUrl(base, file, line) {
+    if (/\/\/(dev\.azure\.com|[\w-]+\.visualstudio\.com)\//.test(base)) {
+      return `${base}?path=/${encodeURI(file)}&line=${line}&lineEnd=${line}&lineStartColumn=1&lineEndColumn=1&lineStyle=plain&_a=contents`;
+    }
+    if (base.includes('//gitlab.com/')) return `${base}/-/blob/HEAD/${file}#L${line}`;
+    if (base.includes('//bitbucket.org/')) return `${base}/src/HEAD/${file}#lines-${line}`;
+    return `${base}/blob/HEAD/${file}#L${line}`;
+  }
 
   /** Tiny DOM builder: h('div', { class: 'x', onclick }, child, 'text'). */
   function h(tag, attrs, ...children) {
@@ -437,7 +447,7 @@
       { class: 'ref' },
       h('span', { class: 'kind' }, KIND_LABEL[link.kind] || link.kind),
       `${link.name}${link.kind === 'image' ? ':' : '@'}${shortVersion(link.version)} · `,
-      url ? h('a', { href: `${url}/blob/HEAD/${link.file}#L${link.line}`, target: '_blank', rel: 'noopener' }, where) : where,
+      url ? h('a', { href: fileUrl(url, link.file, link.line), target: '_blank', rel: 'noopener' }, where) : where,
       link.confidence === 'convention' ? h('span', { class: 'guess', title: 'Linked by naming convention' }, ' (guessed)') : null,
     );
   }
