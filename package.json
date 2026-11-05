@@ -1,6 +1,6 @@
 {
   "name": "ripplemap",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "See which repos in your org are affected when you change one. Maps cross-repo dependencies from Dockerfiles, Terraform, GitHub Actions, npm and Compose files with zero config.",
   "keywords": [
     "dependency-graph",
@@ -36,7 +36,9 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "node --test \"test/**/*.test.ts\"",
-    "prepare": "npm run build"
+    "prepare": "npm run build",
+    "site": "node scripts/site.ts",
+    "demos": "node scripts/demos.ts"
   },
   "dependencies": {
     "smol-toml": "^1.9.1",
@@ -44,6 +46,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "esbuild": "^0.28.2",
     "typescript": "^5.9.0"
   }
 }

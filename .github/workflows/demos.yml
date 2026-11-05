@@ -1,0 +1,42 @@
+name: Refresh demos
+
+# Rescans the orgs suggested on the website (scripts/demos.ts) and commits the results to docs/data.
+on:
+  schedule:
+    - cron: '23 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency: demos
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # File listings are cached until a repo is pushed to, so most weeks need few API requests.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ripplemap
+          key: ripplemap-demos-${{ github.run_id }}
+          restore-keys: ripplemap-demos-
+      - run: npm run demos
+        # An org that hits the rate limit keeps last week's results. The job still succeeds so the cache is saved.
+        continue-on-error: true
+        env:
+          # GITHUB_TOKEN allows 1,000 API requests an hour. A personal access token in the
+          # RIPPLEMAP_TOKEN secret allows 5,000, enough to rescan everything from scratch.
+          GITHUB_TOKEN: ${{ secrets.RIPPLEMAP_TOKEN || secrets.GITHUB_TOKEN }}
+      - name: Commit the new results
+        run: |
+          git add docs/data
+          if git diff --cached --quiet; then echo "No changes."; exit 0; fi
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "Refresh demo data"
+          git push

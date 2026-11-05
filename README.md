@@ -2,13 +2,13 @@
 
 **See which repos break when you change one.**
 
-[**Live demo**](https://zintrivious.github.io/ripplemap/demo/linuxserver/#repo=linuxserver%2Fdocker-baseimage-alpine) · [Website](https://zintrivious.github.io/ripplemap/) · [npm](https://www.npmjs.com/package/ripplemap)
+[**Try it on any public org, in your browser**](https://zintrivious.github.io/ripplemap/) · [Live demo](https://zintrivious.github.io/ripplemap/map/?org=linuxserver#repo=linuxserver%2Fdocker-baseimage-alpine) · [npm](https://www.npmjs.com/package/ripplemap)
 
 You're about to change a shared base image, Terraform module, CI workflow or library. Which repos use it? Which are still on an old version? Usually the answer lives in someone's head or a stale wiki page.
 
 ripplemap reads the files your repos already have and answers in seconds: Dockerfiles, Terraform, GitHub Actions, Kubernetes, Helm, Compose, npm, Go and Python. There's no catalog to write, no server to run, and nothing leaves your machine.
 
-[![The ripplemap report: clicking a repo highlights every repo a change to it would affect](docs/report.png)](https://zintrivious.github.io/ripplemap/demo/cloudposse/#repo=cloudposse%2Fterraform-aws-security-group)
+[![The ripplemap report: clicking a repo highlights every repo a change to it would affect](docs/report.png)](https://zintrivious.github.io/ripplemap/map/?org=cloudposse#repo=cloudposse%2Fterraform-aws-security-group)
 
 **What you can do with it**
 

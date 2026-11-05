@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { defaultCacheDir, globToRegExp, pool, type GitHubScanResult } from './github.ts';
-import { MAX_FILE_BYTES, scanRepos, skipDir, wantsFile, type LoadedRepo, type ScanOptions, type ScanWarning } from './scan.ts';
+import { MAX_FILE_BYTES, scanRepos, skipDir, wantsFile, type LoadedRepo, type ScanOptions, type ScanWarning } from './core.ts';
 import type { RepoInfo } from './types.ts';
 
 export interface AzureScanOptions extends Omit<ScanOptions, 'owner'> {

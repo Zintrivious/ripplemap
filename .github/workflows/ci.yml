@@ -27,3 +27,17 @@ jobs:
       - run: node dist/cli.js scan test/fixtures/acme --owner acme --strict
       - run: node dist/cli.js impact base-images --strict
       - run: node dist/cli.js report --strict
+
+  site:
+    name: Website files are up to date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run site
+      # docs/ is served as is, so the built scanner and the report copies must be committed.
+      - run: git diff --exit-code -- docs || (echo "::error::Run npm run site and commit the changes in docs/." && exit 1)

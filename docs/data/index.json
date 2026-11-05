@@ -1,0 +1,114 @@
+{
+  "orgs": [
+    {
+      "org": "linuxserver",
+      "about": "Docker images built on shared base images",
+      "repos": 288,
+      "links": 2053,
+      "kinds": [
+        "action",
+        "image",
+        "workflow"
+      ],
+      "drifted": 6,
+      "top": {
+        "repo": "linuxserver/docker-baseimage-alpine",
+        "affected": 204,
+        "direct": 83
+      },
+      "scannedAt": "2026-11-05T16:33:17.085Z"
+    },
+    {
+      "org": "cloudposse",
+      "about": "Terraform modules that call each other",
+      "match": [
+        "terraform-*"
+      ],
+      "repos": 163,
+      "links": 467,
+      "kinds": [
+        "terraform-module"
+      ],
+      "drifted": 16,
+      "top": {
+        "repo": "cloudposse/terraform-null-label",
+        "affected": 149,
+        "direct": 149
+      },
+      "scannedAt": "2026-11-05T16:33:22.165Z"
+    },
+    {
+      "org": "sindresorhus",
+      "about": "Hundreds of npm packages that depend on each other",
+      "repos": 955,
+      "links": 1542,
+      "kinds": [
+        "npm",
+        "workflow"
+      ],
+      "drifted": 111,
+      "top": {
+        "repo": "sindresorhus/execa",
+        "affected": 243,
+        "direct": 162
+      },
+      "scannedAt": "2026-11-05T16:33:35.865Z"
+    },
+    {
+      "org": "actions",
+      "about": "GitHub's own actions, used in each other's workflows",
+      "repos": 63,
+      "links": 1043,
+      "kinds": [
+        "action",
+        "go",
+        "image",
+        "npm",
+        "workflow"
+      ],
+      "drifted": 18,
+      "top": {
+        "repo": "actions/checkout",
+        "affected": 56,
+        "direct": 53
+      },
+      "scannedAt": "2026-11-05T16:33:38.497Z"
+    },
+    {
+      "org": "fluxcd",
+      "about": "GitOps toolkit: Go modules and shared workflows",
+      "repos": 30,
+      "links": 294,
+      "kinds": [
+        "action",
+        "go",
+        "terraform-module",
+        "workflow"
+      ],
+      "drifted": 11,
+      "top": {
+        "repo": "fluxcd/go-git-providers",
+        "affected": 20,
+        "direct": 2
+      },
+      "scannedAt": "2026-11-05T16:33:39.980Z"
+    },
+    {
+      "org": "jupyter",
+      "about": "Python packages and their shared CI",
+      "repos": 60,
+      "links": 52,
+      "kinds": [
+        "npm",
+        "python"
+      ],
+      "drifted": 9,
+      "top": {
+        "repo": "jupyter/jupyter_core",
+        "affected": 13,
+        "direct": 8
+      },
+      "scannedAt": "2026-11-05T16:33:42.778Z"
+    }
+  ]
+}

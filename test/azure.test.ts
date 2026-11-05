@@ -124,3 +124,27 @@ test('scan --azure-org explains sign-in instead of failing on an HTML page', asy
   const signIn = (async () => new Response('<html>sign in</html>', { status: 203, headers: { 'content-type': 'text/html' } })) as typeof fetch;
   await assert.rejects(scanAzure({ org: 'contoso', baseUrl: BASE, fetch: signIn, cacheDir: false }), /wants you to sign in.*AZURE_DEVOPS_TOKEN/);
 });
+
+test('pipelines: leaves Kubernetes manifests and Helm templates alone, without warnings', () => {
+  const repo = { id: 'contoso/platform/api', owner: 'contoso/platform', name: 'api', path: 'api' };
+  const deployment = [
+    'apiVersion: apps/v1',
+    'kind: Deployment',
+    'spec:',
+    '  template:',
+    '    spec:',
+    '      containers:',
+    '        - name: app',
+    '          image: ghcr.io/acme/app:1',
+    '          resources:',
+    '            limits: { cpu: 1 }',
+    '---',
+    'apiVersion: v1',
+    'kind: Service',
+  ].join('\n');
+  const helm = 'spec:\n  containers:\n    - name: app\n      resources:\n{{ toYaml .Values.resources | indent 12 }}\n';
+  for (const content of [deployment, helm]) {
+    const result = pipelinesParser.parse({ repo, file: 'deploy/app.yaml', content });
+    assert.deepEqual(result.uses, []);
+  }
+});

@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
-import { drift } from './graph.ts';
+import { reportData } from './report-data.ts';
 import type { Graph } from './types.ts';
+
+export { reportData } from './report-data.ts';
 
 /** The page's CSS and JS live in /assets so they stay plain files, readable from both src/ and dist/. */
 const asset = (name: string) => readFileSync(new URL(`../assets/${name}`, import.meta.url), 'utf8');
@@ -8,53 +10,10 @@ const asset = (name: string) => readFileSync(new URL(`../assets/${name}`, import
 const escapeHtml = (text: string) =>
   text.replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]!);
 
-/** The data the page works from. Kept small: links and drift only, no raw usages. */
-export function reportData(graph: Graph) {
-  const owners = new Set(graph.repos.map((r) => r.owner));
-  return {
-    source: graph.source ?? '',
-    generatedAt: graph.generatedAt,
-    problems: graph.warnings?.length ?? 0,
-    owner: owners.size === 1 ? [...owners][0]! : '',
-    repos: graph.repos.map((r) => ({ id: r.id, url: r.url ?? '' })),
-    links: graph.links.map((l) => ({
-      from: l.from,
-      to: l.to,
-      kind: l.kind,
-      name: l.name,
-      version: l.version,
-      file: l.location.file,
-      line: l.location.line,
-      confidence: l.confidence,
-    })),
-    drift: drift(graph).map((e) => ({
-      kind: e.kind,
-      name: e.name,
-      producers: e.producers,
-      versions: e.versions.map((v) => ({ version: v.version, repos: [...new Set(v.usages.map((u) => u.repo))].sort() })),
-    })),
-  };
-}
-
-/** A single self-contained HTML file: no network requests, safe to attach or open offline. */
-export function renderReport(graph: Graph): string {
-  const data = reportData(graph);
-  // "<" is escaped so no value can close the <script> tag early.
-  const json = JSON.stringify(data).replace(/</g, '\\u003c');
-  const title = data.source ? `ripplemap · ${data.source}` : 'ripplemap';
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${escapeHtml(title)}</title>
-<style>
-${asset('report.css')}
-</style>
-</head>
-<body>
-<header class="top">
-  <div class="brand"><a class="home" href="https://github.com/Zintrivious/ripplemap" target="_blank" rel="noopener" title="Made with ripplemap"><span class="logo" aria-hidden="true"></span>ripplemap</a><span class="source">${escapeHtml(data.source)}</span></div>
+/** The page's markup without its data and script. The website's map page uses it too. */
+export function reportMarkup(source: string, problems: number): string {
+  return `<header class="top">
+  <div class="brand"><a class="home" href="https://github.com/Zintrivious/ripplemap" target="_blank" rel="noopener" title="Made with ripplemap"><span class="logo" aria-hidden="true"></span>ripplemap</a><span class="source">${escapeHtml(source)}</span></div>
   <nav class="tabs" role="tablist">
     <button role="tab" data-tab="impact" aria-selected="true">Impact</button>
     <button role="tab" data-tab="drift" aria-selected="false">Drift <span class="count" id="drift-count"></span></button>
@@ -62,8 +21,8 @@ ${asset('report.css')}
   <div class="stats" id="stats"></div>
 </header>
 ${
-  data.problems
-    ? `<div class="notice" role="status"><b>Incomplete scan.</b> ${data.problems} ${data.problems === 1 ? 'file or repo' : 'files or repos'} could not be read or parsed, so some dependencies may be missing. Run <code>ripplemap scan --verbose</code> to see which.</div>`
+  problems
+    ? `<div class="notice" role="status"><b>Incomplete scan.</b> ${problems} ${problems === 1 ? 'file or repo' : 'files or repos'} could not be read or parsed, so some dependencies may be missing. Run <code>ripplemap scan --verbose</code> to see which.</div>`
     : ''
 }
 <main>
@@ -94,7 +53,27 @@ ${
     </div>
     <div id="drift-list"></div>
   </section>
-</main>
+</main>`;
+}
+
+/** A single self-contained HTML file: no network requests, safe to attach or open offline. */
+export function renderReport(graph: Graph): string {
+  const data = reportData(graph);
+  // "<" is escaped so no value can close the <script> tag early.
+  const json = JSON.stringify(data).replace(/</g, '\\u003c');
+  const title = data.source ? `ripplemap · ${data.source}` : 'ripplemap';
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeHtml(title)}</title>
+<style>
+${asset('report.css')}
+</style>
+</head>
+<body>
+${reportMarkup(data.source, data.problems)}
 <script type="application/json" id="ripplemap-data">${json}</script>
 <script>
 ${asset('report.js')}

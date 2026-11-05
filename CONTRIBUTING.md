@@ -18,8 +18,11 @@ node dist/cli.js scan test/fixtures/acme --owner acme
 ```
 src/
   cli.ts              argument parsing and commands
-  scan.ts             finds repos on disk, runs parsers over their files
-  github.ts           scan --org: lists repos and fetches files through the GitHub API, with a cache
+  core.ts             runs parsers over a repo's files and links the results (no file system, runs in browsers too)
+  scan.ts             finds repos on disk and hands them to core.ts
+  github-api.ts       scan --org: lists repos and fetches files through the GitHub API (also runs in browsers)
+  github.ts           adds the token lookup and the on-disk cache
+  web.ts              the in-browser scanner the website bundles
   azure.ts            scan --azure-org: the same for Azure DevOps
   parsers/            one file per file format
   refs.ts             normalizing image names, module sources, `uses:` values
@@ -27,10 +30,17 @@ src/
   changes.ts          what a set of changed files affects (ripplemap affected, the Action)
   markdown.ts         the pull request comment
   format.ts           terminal output
-  report.ts           builds the HTML report from the graph
+  report.ts           builds the HTML report from the graph (report-data.ts: the data it embeds)
 assets/
   report.css, report.js   the report page's styles and script (plain files, no build step)
 action.yml            the GitHub Action: runs src/ directly on Node 24, no build step
+docs/                 the website, served by GitHub Pages as is
+  index.html          landing page; assets/landing.js, hero.js, site.css
+  assets/map.js       the map page: opens pre-scanned data or scans an org live
+  data/               pre-scanned orgs, refreshed weekly by .github/workflows/demos.yml
+scripts/
+  site.ts             npm run site: bundles web.ts, copies the report assets, writes docs/map/
+  demos.ts            npm run demos: rescans the suggested orgs into docs/data/
 test/
   fixtures/acme/      a small fake org used by the graph tests
 ```
@@ -68,6 +78,10 @@ Guidelines:
 - Set `repoHint` when the reference itself names a repo, so the link can be exact.
 - Report a line number, since people jump to it from the output.
 - Throw on malformed files. The scanner catches the error and reports it as a warning without stopping.
+
+## The website
+
+`docs/` is served as is, so generated files are committed. After changing `src/` or `assets/report.*`, run `npm run site` and commit what changes in `docs/` (CI checks). To preview it, serve the folder: `python3 -m http.server -d docs`, then open http://localhost:8000.
 
 ## Pull requests
 

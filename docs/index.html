@@ -4,93 +4,101 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ripplemap · see which repos break when you change one</title>
-<meta name="description" content="ripplemap reads the Dockerfiles, Terraform, GitHub Actions and package files across your GitHub org and shows which repos are affected when you change one. Free and open source.">
-<style>
-:root {
-  --bg: #f6f6f3; --surface: #fff; --text: #1b1d22; --muted: #646a79; --border: #e2e3e8;
-  --accent: #2f6fed; --direct: #e4532c; --code-bg: #f0f1f3;
-  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  color-scheme: light;
-}
-@media (prefers-color-scheme: dark) {
-  :root { --bg: #0e1014; --surface: #161920; --text: #e8eaef; --muted: #8e94a4; --border: #272b35; --accent: #5d8dff; --direct: #ff6b45; --code-bg: #1d2129; color-scheme: dark; }
-}
-* { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 var(--font); }
-main { max-width: 860px; margin: 0 auto; padding: 56px 20px 72px; }
-a { color: var(--accent); }
-h1 { font-size: clamp(30px, 5vw, 44px); line-height: 1.15; letter-spacing: -0.02em; margin: 0 0 16px; }
-h2 { font-size: 22px; letter-spacing: -0.01em; margin: 48px 0 12px; }
-.lede { font-size: 19px; color: var(--muted); margin: 0 0 28px; max-width: 680px; }
-.brand { display: flex; align-items: center; gap: 10px; font-weight: 650; margin-bottom: 40px; }
-.brand a { color: inherit; text-decoration: none; display: flex; align-items: center; gap: 10px; }
-.logo { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--accent); box-shadow: 0 0 0 3px var(--bg), 0 0 0 5px color-mix(in srgb, var(--accent) 35%, transparent); }
-.brand .gh { margin-left: auto; font-weight: 500; font-size: 15px; }
-.buttons { display: flex; flex-wrap: wrap; gap: 12px; }
-.button { display: inline-block; padding: 10px 18px; border-radius: 10px; font-weight: 600; text-decoration: none; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
-.button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-.demos { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
-.demo { display: block; padding: 18px 20px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); color: var(--text); text-decoration: none; }
-.demo:hover { border-color: var(--accent); }
-.demo b { display: block; font-size: 17px; margin-bottom: 4px; }
-.demo span { color: var(--muted); font-size: 15px; }
-.demo .big { color: var(--direct); font-weight: 650; }
-ul.why { padding-left: 20px; margin: 0; }
-ul.why li { margin: 6px 0; }
-pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; overflow-x: auto; font: 14px/1.5 var(--mono); margin: 12px 0; }
-code { font-family: var(--mono); font-size: 0.92em; }
-p code, li code { background: var(--code-bg); padding: 1px 5px; border-radius: 5px; }
-.muted { color: var(--muted); }
-footer { margin-top: 56px; color: var(--muted); font-size: 14px; }
-</style>
+<meta name="description" content="Type a GitHub org and see which of its repos are affected when you change one, read from their Dockerfiles, Terraform, GitHub Actions and package files. Free and open source.">
+<meta property="og:title" content="ripplemap · see which repos break when you change one">
+<meta property="og:description" content="Type a GitHub org and see its cross-repo dependency map: base images, Terraform modules, shared workflows, packages.">
+<meta property="og:image" content="https://zintrivious.github.io/ripplemap/report.png">
+<meta name="theme-color" content="#050b08">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="assets/site.css">
 </head>
 <body>
-<main>
-  <div class="brand">
-    <a href="https://github.com/Zintrivious/ripplemap"><span class="logo" aria-hidden="true"></span>ripplemap</a>
-    <a class="gh" href="https://github.com/Zintrivious/ripplemap">GitHub ↗</a>
+<nav class="nav">
+  <a class="brand" href="./"><span class="logo" aria-hidden="true"></span>ripplemap</a>
+  <div class="links">
+    <a class="wide" href="#how">how it works</a>
+    <a class="wide" href="#cli">cli</a>
+    <a class="wide" href="#action">pull requests</a>
+    <a class="star" href="https://github.com/Zintrivious/ripplemap">★ GitHub</a>
   </div>
+</nav>
 
-  <h1>See which repos break when you change one.</h1>
-  <p class="lede">
-    You're about to change a shared base image, Terraform module, CI workflow or library. Who uses it? Who's still on an old version?
-    ripplemap reads the files your repos already have and answers in seconds. There's nothing to configure and nothing to install on a server.
-  </p>
-  <div class="buttons">
-    <a class="button primary" href="demo/linuxserver/#repo=linuxserver%2Fdocker-baseimage-alpine">Try the live demo</a>
-    <a class="button" href="https://github.com/Zintrivious/ripplemap">View on GitHub</a>
+<header class="hero">
+  <canvas id="web" aria-hidden="true"></canvas>
+  <div class="hero-inner">
+    <p class="eyebrow">// free &amp; open source dependency mapping</p>
+    <h1>See which repos <span class="hl">break</span><br>when you change one.</h1>
+    <p class="lede">
+      About to change a shared base image, Terraform module, CI workflow or library? Type your GitHub org.
+      ripplemap reads the files your repos already have and shows <b>everything a change would hit</b>, down to the exact line.
+    </p>
+    <form class="prompt" id="scan-form" autocomplete="off">
+      <label class="ps1" for="target"><b>$</b><span class="long"> ripplemap scan --org</span></label>
+      <input id="target" name="org" placeholder="your-org  or  github.com/owner/repo" spellcheck="false" autocapitalize="off" aria-label="GitHub org, user or repo URL" required>
+      <button type="submit">scan ▸</button>
+    </form>
+    <p class="prompt-hint" id="hint">Any public GitHub org, user or repo URL. It's scanned right in your browser, so nothing is uploaded. Private repos? <a href="#cli">Use the CLI</a>.</p>
+    <div class="examples">
+      try:
+      <button type="button" data-target="argoproj">argoproj</button>
+      <button type="button" data-target="github.com/actions/checkout">github.com/actions/checkout</button>
+      <button type="button" data-target="github.com/linuxserver/docker-baseimage-alpine">linuxserver/docker-baseimage-alpine</button>
+    </div>
   </div>
+</header>
 
-  <h2>Live demos on real public orgs</h2>
-  <div class="demos">
-    <a class="demo" href="demo/linuxserver/#repo=linuxserver%2Fdocker-baseimage-alpine">
-      <b>linuxserver · 288 repos</b>
-      <span>Change the Alpine base image and <span class="big">204 repos</span> are affected, 121 of them through other base images.</span>
-    </a>
-    <a class="demo" href="demo/cloudposse/#repo=cloudposse%2Fterraform-aws-security-group">
-      <b>Cloud Posse · 163 Terraform modules</b>
-      <span>Change the security-group module and <span class="big">13 modules</span> are affected. See the Drift tab for versions that have drifted apart.</span>
-    </a>
+<section class="section" id="explore">
+  <h2>explore a real org</h2>
+  <p class="sub">Pre-scanned and refreshed every week, so they open instantly. Click one, then click any dot to see what a change to it would affect.</p>
+  <div class="orgs" id="orgs">
+    <noscript>
+      <a class="org" href="map/?org=linuxserver"><span class="org-name">linuxserver</span></a>
+      <a class="org" href="map/?org=cloudposse"><span class="org-name">cloudposse</span></a>
+    </noscript>
   </div>
-  <p class="muted">Click any dot to see what a change to it would affect, then click through to the exact line on GitHub.</p>
+</section>
 
-  <h2>Why you'd want this</h2>
-  <ul class="why">
-    <li><b>Before a breaking change:</b> know exactly which repos to update, and who to tell.</li>
-    <li><b>On every pull request:</b> a GitHub Action comments with the repos the change may affect, and flags the ones that will pick it up the moment it merges.</li>
-    <li><b>Version drift:</b> see which repos are still on an old base image, module or library version.</li>
-    <li><b>Unpinned references:</b> find repos on <code>latest</code> or <code>@main</code> that change underneath you.</li>
-  </ul>
+<section class="section" id="how">
+  <h2>why you'd want this</h2>
+  <p class="sub">Every org with more than a handful of repos has the same problem: shared pieces get used everywhere, and nobody has the full list of who uses what.</p>
+  <div class="why">
+    <div class="card"><h3>Before a breaking change</h3><p>Know exactly which repos to update and who to tell, before you merge, not after the pages start.</p></div>
+    <div class="card"><h3>On every pull request</h3><p>A GitHub Action comments with the repos a change may affect, and flags the ones that pick it up the moment it merges.</p></div>
+    <div class="card"><h3>Version drift</h3><p>See which repos are still on an old base image, module, workflow or library version.</p></div>
+    <div class="card"><h3>Unpinned references</h3><p>Find repos on <code>latest</code> or <code>@main</code> that will change underneath you.</p></div>
+  </div>
+</section>
 
-  <h2>Try it on your org</h2>
-  <p>Needs Node.js 22 or newer. If you're logged in with the <a href="https://cli.github.com">GitHub CLI</a> (<code>gh auth login</code>), that's all the setup there is:</p>
-<pre>npx ripplemap scan --org your-org
-npx ripplemap report --open</pre>
-  <p class="muted">On Azure DevOps? Use <code>--azure-org your-org</code> with <code>AZURE_DEVOPS_TOKEN</code> set to a personal access token with Code (read) scope.</p>
-  <p class="muted">Not using <code>gh</code>? Set <code>GITHUB_TOKEN</code> to any token instead. Without one, GitHub only allows enough requests for about 50 repos an hour. Private repos work too, and nothing leaves your machine.</p>
+<section class="section" id="cli">
+  <h2>run it on your own org</h2>
+  <div class="cols">
+    <div>
+      <p>The CLI works on private repos too, and nothing leaves your machine. Needs Node.js 22 or newer. If you're logged in with the <a href="https://cli.github.com">GitHub CLI</a>, that's all the setup there is.</p>
+      <div class="term">
+        <div class="term-bar"><i></i><i></i><i></i><span>terminal</span></div>
+<pre><span class="p">$ </span>npx ripplemap scan --org your-org
+<span class="p">$ </span>npx ripplemap report --open</pre>
+      </div>
+    </div>
+    <div>
+      <p>On Azure DevOps? Set <code>AZURE_DEVOPS_TOKEN</code> to a personal access token with Code (read) scope.</p>
+      <div class="term">
+        <div class="term-bar"><i></i><i></i><i></i><span>terminal</span></div>
+<pre><span class="p">$ </span>npx ripplemap scan --azure-org your-org
+<span class="p">$ </span>npx ripplemap impact your-org/platform/templates</pre>
+      </div>
+      <p>Not using <code>gh</code>? Set <code>GITHUB_TOKEN</code> to any token instead.</p>
+    </div>
+  </div>
+</section>
 
-  <h2>Or get a comment on every pull request</h2>
+<section class="section" id="action">
+  <h2>get a comment on every pull request</h2>
+  <p class="sub">Save this as <code>.github/workflows/ripplemap.yml</code> in a repo others depend on. It reads files through the API and never runs the pull request's code.</p>
+  <div class="term">
+    <div class="term-bar"><i></i><i></i><i></i><span>.github/workflows/ripplemap.yml</span></div>
 <pre>name: ripplemap
 on: pull_request_target
 permissions:
@@ -101,12 +109,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: Zintrivious/ripplemap@v0</pre>
-  <p class="muted">Save it as <code>.github/workflows/ripplemap.yml</code> in a repo others depend on. It reads files through the API and never runs the pull request's code.</p>
+  </div>
+</section>
 
-  <h2>What it reads</h2>
-  <p>Dockerfiles, Terraform modules, GitHub Actions workflows, Azure Pipelines templates, Kubernetes manifests, Helm charts, Docker Compose, <code>package.json</code>, <code>go.mod</code>, and Python's <code>pyproject.toml</code> and <code>requirements.txt</code>.</p>
+<section class="section">
+  <h2>what it reads</h2>
+  <p class="sub">No config, no agents, no server. Just the files that already say what depends on what.</p>
+  <div class="reads">
+    <span>Dockerfiles</span><span>Terraform modules</span><span>GitHub Actions</span><span>Azure Pipelines</span><span>Kubernetes</span><span>Helm charts</span><span>Docker Compose</span><span>package.json</span><span>go.mod</span><span>pyproject.toml</span><span>requirements.txt</span>
+  </div>
+</section>
 
-  <footer>Free and open source (MIT). <a href="https://github.com/Zintrivious/ripplemap">Star it on GitHub</a> if it's useful, and <a href="https://github.com/Zintrivious/ripplemap/issues">open an issue</a> if it misreads your files.</footer>
-</main>
+<footer>
+  <span class="grow">ripplemap · free and open source (MIT)</span>
+  <a href="https://github.com/Zintrivious/ripplemap">Star it on GitHub</a>
+  <a href="https://github.com/Zintrivious/ripplemap/issues">Report a misread file</a>
+</footer>
+
+<script src="assets/hero.js"></script>
+<script src="assets/landing.js"></script>
 </body>
 </html>

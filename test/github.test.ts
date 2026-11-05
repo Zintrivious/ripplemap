@@ -98,7 +98,7 @@ const cacheDirs: string[] = [];
 after(() => cacheDirs.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
 
 function run(fake: ReturnType<typeof fakeGitHub>, extra: Partial<GitHubScanOptions> = {}) {
-  return scanGitHub({ org: 'acme', token: 'test-token', cacheDir: false, apiUrl: API, rawUrl: RAW, fetch: fake.fetchFn, ...extra });
+  return scanGitHub({ org: 'acme', token: 'test-token', cacheDir: false, apiUrl: API, rawUrl: RAW, fetch: fake.fetchFn, retryDelay: 0, ...extra });
 }
 
 const linkList = (graph: Graph) => graph.links.map((l) => `${l.from} -> ${l.to} ${l.kind} ${l.name}@${l.version} ${l.location.file}:${l.location.line}`).sort();
@@ -122,6 +122,8 @@ test('skips forks and archived repos unless asked, and filters with --match', as
   // Their trees 404 in the fake, which is reported but doesn't stop the scan.
   assert.equal(everything.warnings.length, 2);
 
+  // An empty list means no filter, not "match nothing".
+  assert.equal((await run(fakeGitHub(), { match: [] })).stats.repos, defaults.stats.repos);
   const matched = await run(fakeGitHub(), { match: ['base-*', 'API'] });
   assert.deepEqual(matched.graph.repos.map((r) => r.name), ['api', 'base-images']);
 });
@@ -175,6 +177,18 @@ test('records files it could not download as warnings in the graph', async () =>
   assert.equal(result.graph.warnings?.length, 1);
   assert.match(result.graph.warnings![0]!.message, /500/);
   assert.equal(result.graph.warnings![0]!.file, 'Dockerfile');
+});
+
+test('retries a file that fails once with a server error', async () => {
+  const fake = fakeGitHub();
+  let failures = 0;
+  const flaky = (async (input: string | URL | Request) => {
+    if (String(input).endsWith('/api/refs/heads/main/Dockerfile') && failures++ === 0) return new Response('busy', { status: 503 });
+    return fake.fetchFn(input);
+  }) as typeof fetch;
+  const result = await run(fake, { fetch: flaky });
+  assert.deepEqual(result.warnings, []);
+  assert.equal(failures, 2);
 });
 
 test('a repo that fails for any reason becomes a warning; the rest of the org is still scanned', async () => {

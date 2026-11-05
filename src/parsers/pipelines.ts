@@ -49,12 +49,18 @@ export const pipelinesParser: Parser = {
 
   parse({ repo, file, content }) {
     const uses: Usage[] = [];
-    // Cheap check first: most YAML files aren't pipelines that pull from other repos.
-    if (!/^\s*(repositories|containers)\s*:/m.test(content) || !/^\s*resources\s*:/m.test(content)) return { uses, produces: [] };
+    // Cheap check first: most YAML files aren't pipelines that pull from other repos. A pipeline's
+    // resources: is a top-level key; Kubernetes manifests also have resources: and containers:, indented.
+    if (!/^resources\s*:/m.test(content) || !/^\s+(repositories|containers)\s*:/m.test(content)) return { uses, produces: [] };
 
     const lineCounter = new LineCounter();
     const doc = parseDocument(content, { lineCounter });
-    if (doc.errors.length) throw new Error(doc.errors[0]!.message);
+    if (doc.errors.length) {
+      // Only worth a warning when the file really looks like a pipeline. Helm templates and
+      // multi-document manifests that happen to pass the check above are someone else's YAML.
+      if (/^(trigger|pr|pool|stages|jobs|steps|extends|variables)\s*:/m.test(content)) throw new Error(doc.errors[0]!.message);
+      return { uses, produces: [] };
+    }
     const lineOf = (offset = 0) => lineCounter.linePos(offset).line;
 
     const aliases = new Map<string, RepoResource>();
