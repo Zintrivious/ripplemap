@@ -16,7 +16,7 @@
         "affected": 204,
         "direct": 83
       },
-      "scannedAt": "2026-11-05T16:33:17.085Z"
+      "scannedAt": "2026-11-09T16:31:03.985Z"
     },
     {
       "org": "cloudposse",
@@ -25,7 +25,7 @@
         "terraform-*"
       ],
       "repos": 163,
-      "links": 467,
+      "links": 466,
       "kinds": [
         "terraform-module"
       ],
@@ -35,7 +35,7 @@
         "affected": 149,
         "direct": 149
       },
-      "scannedAt": "2026-11-05T16:33:22.165Z"
+      "scannedAt": "2026-11-09T16:31:23.156Z"
     },
     {
       "org": "sindresorhus",
@@ -52,7 +52,7 @@
         "affected": 243,
         "direct": 162
       },
-      "scannedAt": "2026-11-05T16:33:35.865Z"
+      "scannedAt": "2026-11-09T16:32:31.018Z"
     },
     {
       "org": "actions",
@@ -72,7 +72,7 @@
         "affected": 56,
         "direct": 53
       },
-      "scannedAt": "2026-11-05T16:33:38.497Z"
+      "scannedAt": "2026-11-09T16:32:47.152Z"
     },
     {
       "org": "fluxcd",
@@ -85,13 +85,13 @@
         "terraform-module",
         "workflow"
       ],
-      "drifted": 11,
+      "drifted": 12,
       "top": {
         "repo": "fluxcd/go-git-providers",
         "affected": 20,
         "direct": 2
       },
-      "scannedAt": "2026-11-05T16:33:39.980Z"
+      "scannedAt": "2026-11-09T16:32:54.496Z"
     },
     {
       "org": "jupyter",
@@ -108,7 +108,7 @@
         "affected": 13,
         "direct": 8
       },
-      "scannedAt": "2026-11-05T16:33:42.778Z"
+      "scannedAt": "2026-11-09T16:33:01.871Z"
     }
   ]
 }
