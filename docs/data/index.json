@@ -3,8 +3,8 @@
     {
       "org": "linuxserver",
       "about": "Docker images built on shared base images",
-      "repos": 288,
-      "links": 2053,
+      "repos": 285,
+      "links": 2046,
       "kinds": [
         "action",
         "image",
@@ -13,10 +13,10 @@
       "drifted": 6,
       "top": {
         "repo": "linuxserver/docker-baseimage-alpine",
-        "affected": 204,
-        "direct": 83
+        "affected": 202,
+        "direct": 82
       },
-      "scannedAt": "2026-11-09T16:31:03.985Z"
+      "scannedAt": "2026-11-16T15:57:34.872Z"
     },
     {
       "org": "cloudposse",
@@ -35,13 +35,13 @@
         "affected": 149,
         "direct": 149
       },
-      "scannedAt": "2026-11-09T16:31:23.156Z"
+      "scannedAt": "2026-11-16T15:57:41.020Z"
     },
     {
       "org": "sindresorhus",
       "about": "Hundreds of npm packages that depend on each other",
       "repos": 955,
-      "links": 1542,
+      "links": 1544,
       "kinds": [
         "npm",
         "workflow"
@@ -49,10 +49,10 @@
       "drifted": 111,
       "top": {
         "repo": "sindresorhus/execa",
-        "affected": 243,
+        "affected": 242,
         "direct": 162
       },
-      "scannedAt": "2026-11-09T16:32:31.018Z"
+      "scannedAt": "2026-11-16T15:57:52.456Z"
     },
     {
       "org": "actions",
@@ -72,7 +72,7 @@
         "affected": 56,
         "direct": 53
       },
-      "scannedAt": "2026-11-09T16:32:47.152Z"
+      "scannedAt": "2026-11-16T15:57:56.683Z"
     },
     {
       "org": "fluxcd",
@@ -91,7 +91,7 @@
         "affected": 20,
         "direct": 2
       },
-      "scannedAt": "2026-11-09T16:32:54.496Z"
+      "scannedAt": "2026-11-16T15:57:59.312Z"
     },
     {
       "org": "jupyter",
@@ -108,7 +108,7 @@
         "affected": 13,
         "direct": 8
       },
-      "scannedAt": "2026-11-09T16:33:01.871Z"
+      "scannedAt": "2026-11-16T15:58:03.753Z"
     }
   ]
 }
