@@ -3,20 +3,20 @@
     {
       "org": "linuxserver",
       "about": "Docker images built on shared base images",
-      "repos": 285,
-      "links": 2046,
+      "repos": 284,
+      "links": 2043,
       "kinds": [
         "action",
         "image",
         "workflow"
       ],
-      "drifted": 6,
+      "drifted": 5,
       "top": {
         "repo": "linuxserver/docker-baseimage-alpine",
         "affected": 202,
         "direct": 82
       },
-      "scannedAt": "2026-11-16T15:57:34.872Z"
+      "scannedAt": "2026-11-23T18:21:06.951Z"
     },
     {
       "org": "cloudposse",
@@ -35,13 +35,13 @@
         "affected": 149,
         "direct": 149
       },
-      "scannedAt": "2026-11-16T15:57:41.020Z"
+      "scannedAt": "2026-11-23T18:21:11.318Z"
     },
     {
       "org": "sindresorhus",
       "about": "Hundreds of npm packages that depend on each other",
       "repos": 955,
-      "links": 1544,
+      "links": 1545,
       "kinds": [
         "npm",
         "workflow"
@@ -52,13 +52,13 @@
         "affected": 242,
         "direct": 162
       },
-      "scannedAt": "2026-11-16T15:57:52.456Z"
+      "scannedAt": "2026-11-23T18:21:22.648Z"
     },
     {
       "org": "actions",
       "about": "GitHub's own actions, used in each other's workflows",
       "repos": 63,
-      "links": 1043,
+      "links": 1061,
       "kinds": [
         "action",
         "go",
@@ -72,7 +72,7 @@
         "affected": 56,
         "direct": 53
       },
-      "scannedAt": "2026-11-16T15:57:56.683Z"
+      "scannedAt": "2026-11-23T18:21:26.345Z"
     },
     {
       "org": "fluxcd",
@@ -85,18 +85,18 @@
         "terraform-module",
         "workflow"
       ],
-      "drifted": 12,
+      "drifted": 24,
       "top": {
         "repo": "fluxcd/go-git-providers",
         "affected": 20,
         "direct": 2
       },
-      "scannedAt": "2026-11-16T15:57:59.312Z"
+      "scannedAt": "2026-11-23T18:21:29.237Z"
     },
     {
       "org": "jupyter",
       "about": "Python packages and their shared CI",
-      "repos": 60,
+      "repos": 61,
       "links": 52,
       "kinds": [
         "npm",
@@ -108,7 +108,7 @@
         "affected": 13,
         "direct": 8
       },
-      "scannedAt": "2026-11-16T15:58:03.753Z"
+      "scannedAt": "2026-11-23T18:21:32.865Z"
     }
   ]
 }
